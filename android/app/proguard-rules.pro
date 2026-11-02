@@ -1,0 +1,2 @@
+-keep class com.engagelab.** { *; }
+-dontwarn com.engagelab.**

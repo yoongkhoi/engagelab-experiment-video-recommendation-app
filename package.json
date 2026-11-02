@@ -1,0 +1,19 @@
+{
+  "name": "engagevideopush",
+  "private": true,
+  "description": "EngageLab AppPush short-video recommendation demo",
+  "scripts": {
+    "install:backend": "npm --prefix backend install",
+    "install:dashboard": "npm --prefix dashboard install",
+    "install:all": "npm run install:backend && npm run install:dashboard",
+    "start:backend": "npm --prefix backend run dev",
+    "start:dashboard": "npm --prefix dashboard run dev",
+    "test:backend": "npm --prefix backend test",
+    "test:dashboard": "npm --prefix dashboard test",
+    "test": "npm run test:backend && npm run test:dashboard",
+    "lint": "npm --prefix backend run lint && npm --prefix dashboard run lint",
+    "typecheck": "npm --prefix backend run typecheck && npm --prefix dashboard run typecheck",
+    "build:dashboard": "npm --prefix dashboard run build",
+    "build:android": "powershell -ExecutionPolicy Bypass -File scripts/build-android.ps1"
+  }
+}

@@ -1,0 +1,11 @@
+services:
+  backend:
+    image: node:22-bookworm
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./backend/.env
+    command: sh -c "npm install && npm run dev"

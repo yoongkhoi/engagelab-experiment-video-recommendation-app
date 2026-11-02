@@ -1,0 +1,11 @@
+# Copy to engagelab.properties. The AppKey is required by the Android SDK.
+# Never put the Master Secret in this file.
+ENGAGELAB_APPKEY=
+# SDK site name from MTCorePrivatesApi.configAppSiteName.
+# Documented values: Singapore, USA_Virginia, DEU_Frankfurt, HongKong.
+# This must match the console Service Endpoint, together with ENGAGELAB_BASE_URL.
+ENGAGELAB_APP_SITE=Singapore
+# Optional. Leave blank and the debug build uses this computer's current LAN IPv4.
+# The emulator still connects through http://10.0.2.2:PORT. A phone or tablet uses the LAN host.
+BACKEND_LAN_HOST=
+BACKEND_PORT=3000

@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">EngageVideoPush</string>
+    <string name="notification_channel_name">Video recommendations</string>
+    <string name="notification_channel_description">Notifications that open a recommended short video.</string>
+</resources>

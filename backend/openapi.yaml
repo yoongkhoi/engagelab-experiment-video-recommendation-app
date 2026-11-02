@@ -1,0 +1,249 @@
+openapi: 3.0.3
+info:
+  title: EngageVideoPush API
+  version: 1.0.0
+  description: |
+    Backend API for the EngageVideoPush demo. Administrative routes require
+    `Authorization: Bearer <ADMIN_API_KEY>`. Device routes use
+    `Authorization: Device <deviceToken>` returned by device registration.
+    The EngageLab Master Secret is never returned by this API.
+servers:
+  - url: http://localhost:3000
+paths:
+  /api/health:
+    get:
+      summary: Process and database health
+      responses:
+        '200':
+          description: Service is up
+  /api/config/status:
+    get:
+      summary: Public configuration status without secrets
+      responses:
+        '200':
+          description: Mode is live or demo
+  /api/videos:
+    get:
+      summary: List videos. Active videos are public. all=1 requires admin auth.
+      responses:
+        '200':
+          description: Video catalogue
+    post:
+      summary: Create a video
+      security: [{ adminKey: [] }]
+      responses:
+        '201':
+          description: Created
+        '409':
+          description: Duplicate id
+  /api/videos/{id}:
+    get:
+      summary: Get one video, including inactive
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Video
+        '404':
+          description: Not found
+    put:
+      summary: Replace video metadata
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Updated
+    delete:
+      summary: Delete a video, or deactivate it when campaigns reference it
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Deleted or deactivated
+  /api/devices/register:
+    post:
+      summary: Store a Registration ID reported by the Android SDK
+      responses:
+        '201':
+          description: Stored locally. tagSyncStatus reports any EngageLab tag call separately.
+  /api/devices:
+    get:
+      summary: List devices
+      security: [{ adminKey: [] }]
+      responses:
+        '200':
+          description: Devices
+  /api/devices/{id}:
+    get:
+      summary: Get a device by internal id or Registration ID
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Device
+  /api/devices/{id}/preferences:
+    put:
+      summary: Update categories and synchronize EngageLab tags
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Updated device with tagSyncStatus
+  /api/devices/{id}/sync-tags:
+    post:
+      summary: Retry EngageLab tag synchronization
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Device tag status
+  /api/campaigns:
+    get:
+      summary: Campaign history
+      security: [{ adminKey: [] }]
+      responses:
+        '200':
+          description: Campaigns
+    post:
+      summary: Create a draft or submit an immediate or scheduled push
+      security: [{ adminKey: [] }]
+      responses:
+        '201':
+          description: Campaign. simulated=true means EngageLab was not called.
+        '400':
+          description: Invalid targeting or missing broadcast confirmation
+        '422':
+          description: No devices matched. The audience was not widened.
+  /api/campaigns/{id}:
+    get:
+      summary: Get a campaign. refresh=1 looks up a provider schedule id.
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Campaign
+  /api/campaigns/{id}/send:
+    post:
+      summary: Submit a draft campaign immediately
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Submission result
+  /api/campaigns/{id}/schedule:
+    post:
+      summary: Create an EngageLab one-time scheduled task
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Schedule result
+  /api/experiments:
+    get:
+      summary: List experiments
+      security: [{ adminKey: [] }]
+      responses:
+        '200':
+          description: Experiments
+    post:
+      summary: Create an A/B experiment draft
+      security: [{ adminKey: [] }]
+      responses:
+        '201':
+          description: Experiment
+  /api/experiments/{id}:
+    get:
+      summary: Experiment detail and results
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Experiment and statistics
+  /api/experiments/{id}/start:
+    post:
+      summary: Assign devices and send both variant campaigns
+      security: [{ adminKey: [] }]
+      parameters:
+        - $ref: '#/components/parameters/id'
+      responses:
+        '200':
+          description: Running experiment
+  /api/events:
+    post:
+      summary: Record a device event
+      responses:
+        '201':
+          description: Stored
+        '200':
+          description: Duplicate dedupe key
+  /api/analytics/overview:
+    get:
+      security: [{ adminKey: [] }]
+      summary: Overview metrics with source labels
+      responses:
+        '200':
+          description: Overview
+  /api/analytics/campaigns:
+    get:
+      security: [{ adminKey: [] }]
+      summary: Per-campaign device events
+      responses:
+        '200':
+          description: Campaign analytics
+  /api/analytics/videos:
+    get:
+      security: [{ adminKey: [] }]
+      summary: Per-video playback events
+      responses:
+        '200':
+          description: Video analytics
+  /api/analytics/experiments:
+    get:
+      security: [{ adminKey: [] }]
+      summary: Experiment results
+      responses:
+        '200':
+          description: Experiment analytics
+  /api/engagelab/status:
+    get:
+      security: [{ adminKey: [] }]
+      summary: Probe GET /v4/tags/ when credentials exist
+      responses:
+        '200':
+          description: Provider status
+  /api/engagelab/test-push:
+    post:
+      security: [{ adminKey: [] }]
+      summary: Explicit operator test push to one Registration ID
+      responses:
+        '200':
+          description: Simulated or accepted
+components:
+  securitySchemes:
+    adminKey:
+      type: http
+      scheme: bearer
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
