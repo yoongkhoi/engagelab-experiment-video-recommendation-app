@@ -20,10 +20,12 @@ BACKEND_PORT=3000
 
 Leave `BACKEND_LAN_HOST` blank. The debug build reads this computer's current LAN IPv4. The running app then chooses the URL:
 
-- Emulator: `http://10.0.2.2:3000`
-- Phone or tablet: `http://<that LAN address>:3000`
+- Emulator: `http://10.0.2.2:<BACKEND_PORT>`
+- Phone or tablet: `http://<that LAN address>:<BACKEND_PORT>`
 
-The backend must be listening on `0.0.0.0:3000`. If the computer's address changes, rebuild or type the new URL on the Device screen. Release builds do not allow cleartext HTTP.
+`BACKEND_PORT` must be the same number as `PORT` in `backend/.env`. The backend listens on `0.0.0.0`. If the computer's address changes, rebuild or type the new URL on the Device screen. `10.0.2.2` works only inside the emulator. Release builds do not allow cleartext HTTP.
+
+The first screen is email sign-in. The backend emails a code only when SMTP is configured. With `AUTH_EMAIL_MODE=test`, the server records the request and does not send mail.
 
 Build:
 

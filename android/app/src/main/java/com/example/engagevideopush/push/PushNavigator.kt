@@ -5,9 +5,12 @@ import kotlinx.coroutines.flow.StateFlow
 
 object PushState {
     val sdkStatus = MutableStateFlow("not_started")
+    val sdkCallback = MutableStateFlow("not received")
     val connected = MutableStateFlow(false)
+    val backendHealth = MutableStateFlow("not checked")
     val registrationId = MutableStateFlow("")
     val deviceType = MutableStateFlow("phone")
+    val authenticated = MutableStateFlow(false)
     val backendStatus = MutableStateFlow("not_contacted")
     val tagSyncStatus = MutableStateFlow("not_attempted")
     val permissionGranted = MutableStateFlow<Boolean?>(null)

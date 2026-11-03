@@ -12,6 +12,8 @@ object FeedCategories {
         Item("Food", "food"),
         Item("Technology", "technology"),
         Item("Sports", "sports"),
+        Item("Animals", "animals"),
+        Item("Entertainment", "entertainment"),
     )
 
     fun path(item: Item, page: Int): String {

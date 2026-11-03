@@ -15,6 +15,8 @@ export function demoConfig(overrides: NodeJS.ProcessEnv = {}): AppConfig {
     ENGAGELAB_MASTER_SECRET: '',
     ENGAGELAB_BASE_URL: '',
     PORT: '3000',
+    SESSION_PEPPER: 'test-session-pepper-value',
+    AUTH_EMAIL_MODE: 'test',
     ...overrides,
   });
 }
@@ -32,6 +34,26 @@ export function liveConfig(): AppConfig {
 export function buildApp(config = demoConfig(), fetchImpl?: typeof fetch) {
   const sqlite = Sqlite.open(':memory:');
   const created = createApp({ config, sqlite, fetchImpl });
+  const now = new Date().toISOString();
+  for (const video of [
+    { id: '1001', title: 'Signal Path', category: 'tech' },
+    { id: '1002', title: 'Cut to the Punchline', category: 'funny' },
+    { id: '1003', title: 'Weekend Drift', category: 'lifestyle' },
+  ]) {
+    created.store.insertVideo({
+      id: video.id,
+      title: video.title,
+      description: 'Test fixture. This file is not shipped to the app.',
+      category: video.category,
+      sourceType: 'remote',
+      source: 'https://example.com/video.mp4',
+      assetFilename: null,
+      thumbnailUrl: null,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
   return { ...created, config };
 }
 

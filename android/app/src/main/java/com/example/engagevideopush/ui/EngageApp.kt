@@ -28,7 +28,9 @@ import androidx.navigation.navArgument
 import com.example.engagevideopush.EngageApplication
 import com.example.engagevideopush.data.FeedCategories
 import com.example.engagevideopush.data.FeedResult
+import com.example.engagevideopush.data.BackendException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import com.example.engagevideopush.push.PushNavigator
 import com.example.engagevideopush.push.PushPayloadParser
@@ -44,6 +46,7 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
     private val _category = MutableStateFlow(FeedCategories.all.first())
     val category: StateFlow<FeedCategories.Item> = _category
     private var page = 1
+    private var appliedPreference = false
 
     fun select(item: FeedCategories.Item) {
         _category.value = item
@@ -57,11 +60,19 @@ class FeedViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun load() {
-        val selected = _category.value
         val requestedPage = page
         _state.value = FeedUiState.Loading
         viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { app.repository.loadFeed(selected, requestedPage) }
+            if (!appliedPreference && requestedPage == 1 && app.backend.sessionToken != null) {
+                appliedPreference = true
+                val preferred = runCatching { withContext(Dispatchers.IO) { app.backend.videoPreferences() } }.getOrNull()
+                val match = com.example.engagevideopush.data.FeedCategories.all.firstOrNull { item ->
+                    item.query != null && preferred?.contains(item.query) == true
+                }
+                if (match != null) _category.value = match
+            }
+            val active = _category.value
+            val result = withContext(Dispatchers.IO) { app.repository.loadFeed(active, requestedPage) }
             _state.value = when {
                 result.videos.isEmpty() && !result.offline -> FeedUiState.Empty
                 result.videos.isEmpty() -> FeedUiState.Failed(result.message ?: "Videos could not be loaded.")
@@ -86,7 +97,6 @@ fun EngageApp(feedViewModel: FeedViewModel = viewModel()) {
     val push by PushNavigator.target.collectAsStateWithLifecycle()
     val app = androidx.compose.ui.platform.LocalContext.current.applicationContext as EngageApplication
 
-    LaunchedEffect(Unit) { feedViewModel.load() }
     LaunchedEffect(push) {
         val target = push ?: return@LaunchedEffect
         val destination = PushPayloadParser.routeFor(target)
@@ -99,6 +109,31 @@ fun EngageApp(feedViewModel: FeedViewModel = viewModel()) {
         PushNavigator.consume()
     }
 
+    val signedIn by com.example.engagevideopush.push.PushState.authenticated.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        val token = app.session.token()
+        com.example.engagevideopush.push.PushState.authenticated.value = token != null
+        if (token == null) return@LaunchedEffect
+        repeat(15) {
+            if (app.backend.baseUrl.isNotBlank()) {
+                val failure = withContext(Dispatchers.IO) { runCatching { app.backend.currentUser() }.exceptionOrNull() }
+                if (failure is BackendException && failure.code == 401) {
+                    app.session.clear()
+                    app.backend.sessionToken = null
+                    com.example.engagevideopush.push.PushState.authenticated.value = false
+                }
+                return@LaunchedEffect
+            }
+            delay(200)
+        }
+    }
+    LaunchedEffect(signedIn) {
+        if (signedIn) feedViewModel.load()
+    }
+    if (!signedIn) {
+        AuthScreen(onSignedIn = { com.example.engagevideopush.push.PushState.authenticated.value = true })
+        return
+    }
     val feed by feedViewModel.state.collectAsStateWithLifecycle()
     val playlistIds = (feed as? FeedUiState.Ready)?.result?.videos?.map { it.id }.orEmpty()
     val showBar = route == null || route == "feed" || route == "preferences" || route == "device"

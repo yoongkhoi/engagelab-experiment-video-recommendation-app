@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError, api } from '../api';
 import { broadcastReady, tagReady } from '../lib/rules';
 
-interface Video { id: string; title: string; category: string; source: string; sourceType: string; active: boolean; }
+interface Video { id: string; title: string; category: string; source: string; sourceType: string; thumbnailUrl?: string | null; active: boolean; }
 interface Device { id: string; registrationId: string; categories: string[]; }
 interface Campaign {
   id: string;
@@ -18,7 +18,7 @@ export function ComposerPage() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
   const [name, setName] = useState('Evening recommendation');
-  const [videoId, setVideoId] = useState('1001');
+  const [videoId, setVideoId] = useState('');
   const [pixabayId, setPixabayId] = useState('');
   const [title, setTitle] = useState('A short video for you');
   const [message, setMessage] = useState('Tap to watch the recommended clip.');
@@ -39,7 +39,9 @@ export function ComposerPage() {
       api<{ videos: Video[] }>('/api/videos?all=1'),
       api<{ devices: Device[] }>('/api/devices'),
     ]).then(([videoData, deviceData]) => {
-      setVideos(videoData.videos.filter((video) => video.active));
+      const active = videoData.videos.filter((video) => video.active);
+      setVideos(active);
+      setVideoId((current) => active.some((item) => item.id === current) ? current : (active[0]?.id ?? ''));
       setDevices(deviceData.devices);
       if (deviceData.devices[0]) setRegistrationId(deviceData.devices[0].registrationId);
     }).catch((reason: Error) => setError(reason.message));
@@ -66,6 +68,14 @@ export function ComposerPage() {
       acknowledgeTagScope: mode === 'tag' ? true : undefined,
     };
     try {
+      const preview = await api<{ willSend: boolean; registrationIds: string[]; broadcast: boolean; note: string; missing: string[] }>('/api/push/preview', {
+        method: 'POST',
+        body: JSON.stringify({ videoId: chosenVideoId, targeting }),
+      });
+      if (!preview.willSend) {
+        setError(`${preview.note} Missing target: ${preview.missing.join(', ') || 'none resolved'}. Nothing was sent.`);
+        return;
+      }
       const response = await api<{ campaign: Campaign; simulated: boolean }>('/api/campaigns', {
         method: 'POST',
         body: JSON.stringify({
@@ -86,11 +96,18 @@ export function ComposerPage() {
       <h1>Push composer</h1>
       {error ? <p className="error">{error}</p> : null}
       <form className="preview" onSubmit={submit}>
-        <div className="phone">
-          <small>Android notification preview</small>
-          <h2>{title || 'Title'}</h2>
-          <p>{message || 'Message'}</p>
-          <p className="muted">{video ? `${video.title} · ${video.category}` : `Video ${chosenVideoId}`}</p>
+        <div className="preview-side">
+          <div className="phone">
+            <small>Android notification preview</small>
+            <h2>{title || 'Title'}</h2>
+            <p>{message || 'Message'}</p>
+            <p className="muted">{video ? `${video.title} · ${video.category}` : (chosenVideoId ? `Video ${chosenVideoId}` : 'No video selected')}</p>
+          </div>
+          {video?.source?.startsWith('https://') ? (
+            <video key={video.id} src={video.source} poster={video.thumbnailUrl ?? undefined} controls />
+          ) : (
+            <p className="muted">This video has no playable file.</p>
+          )}
         </div>
         <div className="panel">
           <label>Campaign name<input value={name} onChange={(event) => setName(event.target.value)} required /></label>
@@ -158,7 +175,6 @@ export function ComposerPage() {
           <button className="primary" type="submit" disabled={!ready}>Submit</button>
         </div>
       </form>
-      {video?.sourceType === 'remote' ? <video src={video.source} controls width="360" /> : null}
       {result ? (
         <div className={result.campaign.status === 'draft' || result.simulated ? 'banner' : 'banner live'}>
           <strong>{result.campaign.status === 'draft' ? 'Draft saved. EngageLab was not called.' : result.simulated ? 'Simulated result' : `Provider status: ${result.campaign.status}`}</strong>

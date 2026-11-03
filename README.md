@@ -89,7 +89,9 @@ Android, from `android` after the SDK is installed:
 .\gradlew.bat assembleDebug
 ```
 
-Install `app/build/outputs/apk/debug/app-debug.apk`. A debug build points an emulator at `http://10.0.2.2:3000` and a phone or tablet at this computer's LAN address captured when the app is built. The Device screen can replace the LAN address without rebuilding.
+Install `app/build/outputs/apk/debug/app-debug.apk`. A debug build points an emulator at `http://10.0.2.2:<PORT>` and a phone or tablet at this computer's LAN address captured when the app is built. `BACKEND_PORT` in `android/engagelab.properties` must match the backend `PORT`. The Device screen can replace the LAN address without rebuilding. Release builds do not allow cleartext HTTP.
+
+The app asks for an email one-time code before the feed. SMTP settings stay in `backend/.env` (`SMTP_SERVER`, `SMTP_PORT=587`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SENDER_EMAIL`, `SESSION_PEPPER`). `AUTH_EMAIL_MODE=test` accepts codes without sending mail. Automated tests use that mode and do not send email or live pushes.
 
 ## Dashboard
 

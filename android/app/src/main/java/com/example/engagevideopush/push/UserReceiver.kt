@@ -12,12 +12,19 @@ import com.example.engagevideopush.MainActivity
 
 class UserReceiver : MTCommonReceiver() {
     override fun onConnectStatus(context: Context, enable: Boolean) {
-        Log.i(TAG, "onConnectStatus=$enable")
+        val registerCode = runCatching { MTCorePrivatesApi.getRegisterCode(context) }.getOrDefault(-1)
+        val loginCode = runCatching { MTCorePrivatesApi.getLoginCode(context) }.getOrDefault(-1)
+        Log.i(TAG, "onConnectStatus=$enable registerCode=$registerCode loginCode=$loginCode")
         PushState.connected.value = enable
-        if (!enable) return
+        PushState.sdkCallback.value = "onConnectStatus($enable) registerCode=$registerCode loginCode=$loginCode"
+        if (!enable) {
+            val hint = engageLabRegisterHint(context, registerCode)
+            PushState.lastError.value = "EngageLab reported onConnectStatus(false). registerCode=$registerCode loginCode=$loginCode. $hint No Registration ID was sent to the backend."
+            return
+        }
         val registrationId = MTCorePrivatesApi.getRegistrationId(context)
         if (registrationId.isNullOrBlank()) {
-            PushState.lastError.value = "Long connection is up, but Registration ID is still empty."
+            PushState.lastError.value = "onConnectStatus(true), but getRegistrationId is still empty. registerCode=$registerCode loginCode=$loginCode."
             return
         }
         Log.i(TAG, "registrationId length=${registrationId.length}")
@@ -56,5 +63,15 @@ class UserReceiver : MTCommonReceiver() {
 
     companion object {
         private const val TAG = "EngagePush"
+    }
+}
+
+internal fun engageLabRegisterHint(context: Context, registerCode: Int): String {
+    val packageName = context.packageName
+    return when (registerCode) {
+        1005 -> "Code 1005 means this package does not match the AppKey. The installed package is $packageName."
+        1008 -> "Code 1008 means EngageLab rejected the AppKey."
+        1009 -> "Code 1009 means EngageLab accepted the TCP connection and then refused to create a Registration ID for this AppKey. The installed package is $packageName. In the console, the Android package name for this AppKey must be exactly that value."
+        else -> "The SDK did not return a Registration ID."
     }
 }

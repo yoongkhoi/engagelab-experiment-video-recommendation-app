@@ -83,7 +83,9 @@ export function migrate(db: Sqlite): void {
       tag_synced_at TEXT,
       engagelab_tags TEXT,
       device_type TEXT,
-      installation_id TEXT
+      installation_id TEXT,
+      user_id TEXT,
+      notification_enabled INTEGER NOT NULL DEFAULT 1
     );
 
     CREATE TABLE IF NOT EXISTS campaigns (
@@ -162,7 +164,45 @@ export function migrate(db: Sqlite): void {
       source TEXT NOT NULL,
       metadata TEXT,
       occurred_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      user_id TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      normalized_email TEXT NOT NULL UNIQUE,
+      display_name TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_login_at TEXT,
+      account_status TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS auth_challenges (
+      id TEXT PRIMARY KEY,
+      normalized_email TEXT NOT NULL,
+      otp_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      attempts INTEGER NOT NULL,
+      consumed_at TEXT,
+      request_ip TEXT,
       created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id TEXT PRIMARY KEY,
+      categories TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
     );
 
     CREATE UNIQUE INDEX IF NOT EXISTS events_dedupe_idx
@@ -174,7 +214,12 @@ export function migrate(db: Sqlite): void {
   const columns = db.all<{ name: string }>('PRAGMA table_info(devices)').map((column) => column.name);
   if (!columns.includes('device_type')) db.exec('ALTER TABLE devices ADD COLUMN device_type TEXT');
   if (!columns.includes('installation_id')) db.exec('ALTER TABLE devices ADD COLUMN installation_id TEXT');
+  if (!columns.includes('user_id')) db.exec('ALTER TABLE devices ADD COLUMN user_id TEXT');
+  if (!columns.includes('notification_enabled')) db.exec('ALTER TABLE devices ADD COLUMN notification_enabled INTEGER NOT NULL DEFAULT 1');
+  const eventColumns = db.all<{ name: string }>('PRAGMA table_info(events)').map((column) => column.name);
+  if (!eventColumns.includes('user_id')) db.exec('ALTER TABLE events ADD COLUMN user_id TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS devices_installation_idx ON devices(installation_id)');
+  db.exec('CREATE INDEX IF NOT EXISTS auth_challenges_email_idx ON auth_challenges(normalized_email, created_at)');
 }
 
 export interface SeedVideo {
@@ -188,38 +233,7 @@ export interface SeedVideo {
   thumbnailUrl: string;
 }
 
-export const SEED_VIDEOS: SeedVideo[] = [
-  {
-    id: '1001',
-    title: 'Signal Path',
-    description: 'Technology sample. Plays the Blender Foundation film Big Buck Bunny (CC BY 3.0) when the local asset is absent.',
-    category: 'tech',
-    sourceType: 'remote',
-    source: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-    assetFilename: 'tech.mp4',
-    thumbnailUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/BigBuckBunny.jpg',
-  },
-  {
-    id: '1002',
-    title: 'Cut to the Punchline',
-    description: 'Funny sample. Plays Elephants Dream (Blender Foundation, CC BY) when funny.mp4 is not bundled.',
-    category: 'funny',
-    sourceType: 'remote',
-    source: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-    assetFilename: 'funny.mp4',
-    thumbnailUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ElephantsDream.jpg',
-  },
-  {
-    id: '1003',
-    title: 'Weekend Drift',
-    description: 'Lifestyle sample. Remote fallback is a short Google-hosted developer sample clip.',
-    category: 'lifestyle',
-    sourceType: 'remote',
-    source: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
-    assetFilename: 'lifestyle.mp4',
-    thumbnailUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/images/ForBiggerJoyrides.jpg',
-  },
-];
+export const SEED_VIDEOS: SeedVideo[] = [];
 
 export function seedVideos(db: Sqlite, now = new Date().toISOString()): void {
   const existing = db.get<{ count: number }>('SELECT COUNT(*) AS count FROM videos');

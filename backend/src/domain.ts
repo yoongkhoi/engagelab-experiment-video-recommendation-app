@@ -40,6 +40,8 @@ export interface Device {
   platform: 'android';
   deviceType: 'emulator' | 'phone' | 'tablet' | null;
   installationId: string | null;
+  userId: string | null;
+  notificationEnabled: boolean;
   categories: Category[];
   appVersion: string | null;
   registeredAt: string;
@@ -113,10 +115,31 @@ export interface Assignment {
   assignedAt: string;
 }
 
+export const VIDEO_PREFERENCE_CATEGORIES = ['travel', 'nature', 'food', 'technology', 'sports', 'animals', 'entertainment'] as const;
+export type VideoPreference = (typeof VIDEO_PREFERENCE_CATEGORIES)[number];
+
+export interface AppUser {
+  id: string;
+  normalizedEmail: string;
+  displayName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt: string | null;
+  accountStatus: 'active';
+}
+
+export interface UserPreferenceRecord {
+  userId: string;
+  categories: VideoPreference[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AppEvent {
   id: string;
   eventType: EventType;
   registrationId: string | null;
+  userId: string | null;
   campaignId: string | null;
   videoId: string | null;
   experimentId: string | null;

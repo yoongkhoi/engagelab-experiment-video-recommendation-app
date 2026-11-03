@@ -4,7 +4,15 @@ export const publicRoutes = [
     'GET /api/openapi.yaml',
     'GET /api/videos',
     'GET /api/videos/:id',
+    'POST /api/auth/otp/request',
+    'POST /api/auth/otp/verify',
+    'POST /api/auth/logout',
+    'GET /api/me',
+    'GET /api/me/preferences',
+    'PUT /api/me/preferences',
     'POST /api/devices/register',
+    'POST /api/devices/detach',
+    'POST /api/push/preview',
 ] as const;
 
 export const deviceRoutes = [
@@ -18,6 +26,7 @@ export const adminRoutes = [
     'DELETE /api/videos/:id',
     'GET /api/devices',
     'GET /api/devices/:id',
+    'POST /api/devices/:id/disassociate',
     'POST /api/devices/:id/sync-tags',
     'POST /api/campaigns',
     'GET /api/campaigns',

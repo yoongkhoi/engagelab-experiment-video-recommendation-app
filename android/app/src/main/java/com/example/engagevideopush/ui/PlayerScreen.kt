@@ -1,7 +1,13 @@
 package com.example.engagevideopush.ui
 
+import android.app.Activity
 import android.view.ViewGroup
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.annotation.OptIn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,7 +16,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -18,13 +29,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -33,12 +49,15 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.example.engagevideopush.EngageApplication
 import com.example.engagevideopush.data.VideoItem
 import com.example.engagevideopush.playback.PlaybackSession
+import com.example.engagevideopush.playback.playerAspectRatio
 import com.example.engagevideopush.push.PushState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -68,6 +87,8 @@ fun PlayerScreen(
     var loading by remember { mutableStateOf(true) }
     var lookupAttempt by remember { mutableIntStateOf(0) }
     var preparedKey by remember { mutableStateOf<String?>(null) }
+    var fullscreen by remember { mutableStateOf(false) }
+    var aspect by remember { mutableFloatStateOf(16f / 9f) }
     val opened = remember { mutableSetOf<String>() }
     val started = remember { mutableSetOf<String>() }
 
@@ -104,6 +125,10 @@ fun PlayerScreen(
                     val playbackCategory = if (current.id == videoId) category else current.category
                     app.scope.launch { postPlayback(app, "video_play_completed", current, playbackCampaign, playbackCategory) }
                 }
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                aspect = playerAspectRatio(videoSize.width, videoSize.height)
             }
 
             override fun onPlayerError(playbackErrorEvent: PlaybackException) {
@@ -162,7 +187,59 @@ fun PlayerScreen(
         playbackError = null
     }
 
-    val maxHeight = (configuration.screenHeightDp * 0.5f).dp
+    val view = LocalView.current
+    SideEffect {
+        val window = (view.context as Activity).window
+        val controller = WindowCompat.getInsetsController(window, view)
+        WindowCompat.setDecorFitsSystemWindows(window, !fullscreen)
+        if (fullscreen) {
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+    val maxHeight = (configuration.screenHeightDp * if (aspect < 1f) 0.72f else 0.5f).dp
+    val playerModifier = if (fullscreen) {
+        Modifier.fillMaxSize()
+    } else {
+        Modifier.fillMaxWidth().padding(top = 8.dp).heightIn(max = maxHeight).aspectRatio(aspect)
+    }
+    val playerView: @Composable () -> Unit = {
+        Box(playerModifier) {
+            AndroidView(
+                factory = { viewContext ->
+                    PlayerView(viewContext).apply {
+                        this.player = player
+                        useController = true
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                        )
+                    }
+                },
+                update = { surface ->
+                    surface.player = player
+                    surface.useController = true
+                    surface.resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+            IconButton(onClick = { fullscreen = !fullscreen }, modifier = Modifier.align(Alignment.TopEnd)) {
+                Icon(
+                    if (fullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                    contentDescription = if (fullscreen) "Exit fullscreen" else "Fullscreen",
+                    tint = Color.White,
+                )
+            }
+        }
+    }
+    if (fullscreen) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) { playerView() }
+        return
+    }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
         Button(onClick = onBack) { Text("Back") }
         Text(video?.title ?: "Video $videoId", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(vertical = 8.dp))
@@ -173,28 +250,7 @@ fun PlayerScreen(
                 Text("Video by $creator on Pixabay")
             }
         }
-        AndroidView(
-            factory = { viewContext ->
-                PlayerView(viewContext).apply {
-                    this.player = player
-                    useController = true
-                    setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-                    layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                    )
-                }
-            },
-            update = { view ->
-                view.player = player
-                view.useController = true
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp)
-                .heightIn(max = maxHeight)
-                .aspectRatio(16f / 9f),
-        )
+        playerView()
         if (loading) Text("Opening video…", modifier = Modifier.padding(top = 8.dp))
         metadataError?.let { message ->
             Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))

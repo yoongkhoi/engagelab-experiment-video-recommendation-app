@@ -10,6 +10,7 @@ import { PixabayCatalog } from './integrations/pixabay.js';
 import { logger } from './logger.js';
 import { adminAuth, readDeviceToken, type AuthedRequest } from './middleware/auth.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
+import type { Device } from './domain.js';
 import { Store } from './repositories/store.js';
 import { AnalyticsService } from './services/analyticsService.js';
 import { resolveDeviceExperiment } from './services/attribution.js';
@@ -17,17 +18,24 @@ import { CampaignService } from './services/campaignService.js';
 import { DeviceService } from './services/deviceService.js';
 import { EventService } from './services/eventService.js';
 import { ExperimentService } from './services/experimentService.js';
+import { AuthService } from './services/authService.js';
+import { createMailer, type Mailer } from './services/mailer.js';
 import { VideoService } from './services/videoService.js';
 import { HttpError } from './errors.js';
 import {
   campaignSchema,
   eventSchema,
   experimentSchema,
+  detachDeviceSchema,
+  otpRequestSchema,
+  otpVerifySchema,
   preferencesSchema,
+  pushPreviewSchema,
   registerDeviceSchema,
   scheduleSchema,
   sendSchema,
   testPushSchema,
+  videoPreferencesSchema,
   videoSchema,
 } from './validators/schemas.js';
 
@@ -35,6 +43,7 @@ export interface AppOptions {
   config: AppConfig;
   sqlite?: Sqlite;
   fetchImpl?: typeof fetch;
+  mailer?: Mailer;
 }
 
 export function createApp(options: AppOptions) {
@@ -50,7 +59,27 @@ export function createApp(options: AppOptions) {
   const campaigns = new CampaignService(store, videos, devices, events, client, options.config);
   const experiments = new ExperimentService(store, videos, campaigns);
   const analytics = new AnalyticsService(store, experiments, options.config);
+  const auth = new AuthService(store, options.mailer ?? createMailer(options.config, logger), options.config.sessionPepper);
   const requireAdmin = adminAuth(options.config);
+
+  function bearerToken(req: AuthedRequest): string {
+    const header = req.header('authorization') ?? '';
+    return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  }
+
+  function requireUser(req: AuthedRequest) {
+    const token = bearerToken(req);
+    if (!token || token === options.config.adminApiKey) {
+      throw new HttpError(401, 'UNAUTHORIZED', 'Sign in again.');
+    }
+    return auth.userForToken(token);
+  }
+
+  function optionalUser(req: AuthedRequest) {
+    const token = bearerToken(req);
+    if (!token || token === options.config.adminApiKey) return null;
+    return auth.userForToken(token);
+  }
 
   const app = express();
   app.disable('x-powered-by');
@@ -59,7 +88,82 @@ export function createApp(options: AppOptions) {
   app.use(readDeviceToken);
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, database: 'up', service: 'engagevideopush-backend' });
+    res.json({ ok: true, database: 'up', service: 'engagevideopush-backend', port: options.config.port });
+  });
+
+  app.post('/api/auth/otp/request', async (req, res, next) => {
+    try {
+      const body = otpRequestSchema.parse(req.body);
+      await auth.requestOtp(body.email, req.ip ?? null);
+      res.json({ status: 'accepted', message: 'If the address can receive mail, a verification code is on its way.' });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/auth/otp/verify', (req, res, next) => {
+    try {
+      const body = otpVerifySchema.parse(req.body);
+      const result = auth.verify(body.email, body.code);
+      res.json({
+        token: result.token,
+        expiresAt: result.expiresAt,
+        created: result.created,
+        user: { id: result.user.id, email: result.user.normalizedEmail, accountStatus: result.user.accountStatus },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/auth/logout', (req, res, next) => {
+    try {
+      const token = bearerToken(req);
+      if (!token) throw new HttpError(401, 'UNAUTHORIZED', 'Sign in again.');
+      auth.logout(token);
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/api/me', (req, res, next) => {
+    try {
+      const user = requireUser(req);
+      res.json({ user: { id: user.id, email: user.normalizedEmail, createdAt: user.createdAt, lastLoginAt: user.lastLoginAt, accountStatus: user.accountStatus } });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get('/api/me/preferences', (req, res, next) => {
+    try {
+      const user = requireUser(req);
+      res.json({ preferences: auth.preferences(user.id) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put('/api/me/preferences', (req, res, next) => {
+    try {
+      const user = requireUser(req);
+      const body = videoPreferencesSchema.parse(req.body);
+      res.json({ preferences: auth.savePreferences(user.id, body.categories) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/devices/detach', (req, res, next) => {
+    try {
+      const user = requireUser(req);
+      const body = detachDeviceSchema.parse(req.body);
+      store.clearDeviceUser(body.installationId, user.id);
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.get('/api/config/status', (_req, res) => {
@@ -71,6 +175,8 @@ export function createApp(options: AppOptions) {
       adminAuthRequired: true,
       deliveryMetricsAvailable: false,
       pixabayConfigured: pixabay.configured(),
+      port: options.config.port,
+      emailMode: options.config.email.mode,
       androidPackageName: options.config.androidPackageName,
       note: options.config.mode === 'demo'
         ? 'Demo mode is active. Provider results are simulated and are not EngageLab deliveries.'
@@ -152,7 +258,12 @@ export function createApp(options: AppOptions) {
   app.post('/api/devices/register', async (req, res, next) => {
     try {
       const body = registerDeviceSchema.parse(req.body);
-      res.status(201).json(await devices.register(body));
+      const user = optionalUser(req);
+      res.status(201).json(await devices.register({
+        ...body,
+        ...(user ? { userId: user.id } : {}),
+        notificationEnabled: body.notificationEnabled,
+      }));
     } catch (error) {
       next(error);
     }
@@ -160,17 +271,14 @@ export function createApp(options: AppOptions) {
 
   app.get('/api/devices', requireAdmin, (_req, res) => {
     res.json({
-      devices: devices.list().map((device) => ({
-        ...device,
-        registrationIdMasked: maskId(device.registrationId),
-      })),
+      devices: devices.list().map((device) => accountView(device, store, options.config)),
     });
   });
 
   app.get('/api/devices/:id', requireAdmin, (req, res, next) => {
     try {
       const device = devices.get(req.params.id);
-      res.json({ device: { ...device, registrationIdMasked: maskId(device.registrationId) } });
+      res.json({ device: accountView(device, store, options.config) });
     } catch (error) {
       next(error);
     }
@@ -183,6 +291,16 @@ export function createApp(options: AppOptions) {
         && req.header('authorization')?.slice(7).trim() === options.config.adminApiKey;
       if (!admin) devices.requireDeviceToken(req.params.id, req.deviceToken);
       res.json({ device: await devices.updatePreferences(req.params.id, body.categories, admin ? 'admin' : 'device') });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/devices/:id/disassociate', requireAdmin, (req, res, next) => {
+    try {
+      devices.get(req.params.id);
+      store.disassociateDevice(req.params.id);
+      res.json({ device: accountView(devices.get(req.params.id), store, options.config) });
     } catch (error) {
       next(error);
     }
@@ -303,6 +421,7 @@ export function createApp(options: AppOptions) {
       const event = events.record({
         ...body,
         registrationId: device.registrationId,
+        userId: device.userId,
         experimentId: attribution.experimentId,
         variant: attribution.variant,
         source: 'device',
@@ -346,6 +465,16 @@ export function createApp(options: AppOptions) {
     }
   });
 
+  app.post('/api/push/preview', requireAdmin, (req, res, next) => {
+    try {
+      const body = pushPreviewSchema.parse(req.body);
+      const target = campaigns.describeTarget(body.targeting);
+      res.json({ ...target, videoId: body.videoId ?? null, willSend: target.missing.length === 0 });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post('/api/engagelab/test-push', requireAdmin, async (req, res, next) => {
     try {
       const body = testPushSchema.parse(req.body);
@@ -382,6 +511,23 @@ function readPage(value: unknown): number {
     throw new HttpError(400, 'INVALID_PAGE', 'page must be an integer from 1 to 50.');
   }
   return page;
+}
+
+function accountView(device: Device, store: Store, config: AppConfig) {
+  const user = device.userId ? store.getUser(device.userId) : undefined;
+  const preferences = user ? store.getPreferences(user.id) : undefined;
+  return {
+    ...device,
+    registrationIdMasked: maskId(device.registrationId),
+    email: user?.normalizedEmail ?? null,
+    accountCreatedAt: user?.createdAt ?? null,
+    accountStatus: user?.accountStatus ?? null,
+    preferenceCategories: preferences?.categories ?? [],
+    preferencesUpdatedAt: preferences?.updatedAt ?? null,
+    appName: 'EngageVideoPush',
+    sdkVersion: '5.4.0',
+    environment: config.mode,
+  };
 }
 
 function maskId(value: string): string {

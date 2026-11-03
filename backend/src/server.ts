@@ -18,6 +18,7 @@ const server = app.listen(config.port, '0.0.0.0', () => {
       engagelabConfigured: config.engagelab.configured,
       baseUrlHost: config.engagelab.configured ? new URL(config.engagelab.baseUrl).host : null,
       knownDataCenter: config.engagelab.knownDataCenter,
+      emailMode: config.email.mode,
     },
     'EngageVideoPush backend is listening. No push is sent at startup.',
   );

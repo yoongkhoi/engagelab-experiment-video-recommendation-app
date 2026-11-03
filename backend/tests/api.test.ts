@@ -154,6 +154,20 @@ describe('videos, devices, and auth', () => {
     expect(stored.body.devices).toHaveLength(2);
   });
 
+  it('rejects a push to a Registration ID that was never stored', async () => {
+    const { app } = useApp();
+    const draft = await admin(app).post('/api/campaigns').send({
+      name: 'Missing target',
+      videoId: '1001',
+      title: 'Hello',
+      message: 'This must not be broadcast.',
+      targeting: { mode: 'registration_id', registrationId: 'regNotStored01' },
+      delivery: 'immediate',
+    });
+    expect(draft.status).toBe(400);
+    expect(draft.body.error.message).toMatch(/Cannot find sending target|not stored/i);
+  });
+
   it('rejects malformed JSON and unauthenticated admin calls', async () => {
     const { app } = useApp();
     const malformed = await request(app)

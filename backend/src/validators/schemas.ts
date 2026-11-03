@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CATEGORIES, EVENT_TYPES } from '../domain.js';
+import { CATEGORIES, EVENT_TYPES, VIDEO_PREFERENCE_CATEGORIES } from '../domain.js';
 
 const category = z.enum(CATEGORIES);
 const registrationId = z.string().trim().min(5).max(128).regex(/^[A-Za-z0-9_:\-]+$/, 'Registration ID contains unsupported characters');
@@ -40,7 +40,25 @@ export const registerDeviceSchema = z.preprocess((input) => {
   appVersion: z.string().trim().max(40).optional(),
   deviceType: z.enum(['emulator', 'phone', 'tablet']).optional(),
   installationId: z.string().trim().min(8).max(64).regex(/^[A-Za-z0-9_\-]+$/).optional(),
+  notificationEnabled: z.boolean().optional(),
 }));
+
+export const otpRequestSchema = z.object({
+  email: z.string().trim().email().max(200),
+});
+
+export const otpVerifySchema = z.object({
+  email: z.string().trim().email().max(200),
+  code: z.string().trim().regex(/^\d{6}$/),
+});
+
+export const videoPreferencesSchema = z.object({
+  categories: z.array(z.enum(VIDEO_PREFERENCE_CATEGORIES)).max(VIDEO_PREFERENCE_CATEGORIES.length),
+});
+
+export const detachDeviceSchema = z.object({
+  installationId: z.string().trim().min(8).max(64),
+});
 
 export const preferencesSchema = z.object({
   categories: z.array(category).min(1).max(3),
@@ -106,4 +124,10 @@ export const eventSchema = z.object({
 export const testPushSchema = z.object({
   registrationId,
   videoId: videoId.optional(),
+  confirm: z.literal(true),
+});
+
+export const pushPreviewSchema = z.object({
+  videoId: videoId.optional(),
+  targeting: targetingSchema,
 });

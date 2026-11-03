@@ -91,6 +91,7 @@ export class CampaignService {
     this.assertSendable(campaign);
     const video = await this.requireActiveVideo(campaign.videoId);
     const audience = this.retarget(campaign);
+    this.assertKnownTargets(campaign, audience);
     return this.dispatch(campaign, video, audience, null);
   }
 
@@ -103,6 +104,7 @@ export class CampaignService {
     this.assertSendable(campaign);
     const video = await this.requireActiveVideo(campaign.videoId);
     const audience = this.retarget(campaign);
+    this.assertKnownTargets(campaign, audience);
     const normalized = this.validateSchedule(schedule);
     return this.dispatch(campaign, video, audience, normalized);
   }
@@ -266,6 +268,34 @@ export class CampaignService {
           'validation',
         );
       }
+    }
+  }
+
+  describeTarget(targeting: TargetingInput) {
+    const audience = resolveAudience(targeting, this.store.listDevices());
+    const missing = audience.broadcast
+      ? []
+      : audience.registrationIds.filter((id) => !id.trim() || !this.store.getDeviceByRegistration(id));
+    return {
+      mode: targeting.mode,
+      registrationIds: audience.registrationIds,
+      broadcast: audience.broadcast,
+      missing,
+      note: audience.broadcast
+        ? 'Broadcast can reach EngageLab devices that are not in this database. It is not used when a specific target is invalid.'
+        : 'The push stays on these Registration IDs. An unknown ID is rejected instead of being widened to a broadcast.',
+    };
+  }
+
+  private assertKnownTargets(campaign: Campaign, audience: ReturnType<typeof resolveAudience>): void {
+    if (audience.broadcast || campaign.targetingMode === 'tag') return;
+    const missing = audience.registrationIds.filter((id) => !id.trim() || !this.store.getDeviceByRegistration(id));
+    if (!audience.registrationIds.length || missing.length) {
+      throw new HttpError(
+        400,
+        'TARGET_UNKNOWN',
+        'The Registration ID is empty or is not stored for this backend. EngageLab returns HTTP 400 "Cannot find sending target" when the ID was never issued for this AppKey. The push was not sent and was not changed to a broadcast.',
+      );
     }
   }
 

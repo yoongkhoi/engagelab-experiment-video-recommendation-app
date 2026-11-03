@@ -107,6 +107,6 @@ class PushPayloadParserTest {
         assertTrue(parsed.valid)
         assertEquals("player/9999?campaignId=&category=tech", PushPayloadParser.routeFor(parsed))
         assertNull(LocalCatalog.videos.find { it.id == "9999" })
-        assertEquals("1001", LocalCatalog.videos.find { it.id == "1001" }?.id)
+        assertNull(LocalCatalog.videos.find { it.id == "1001" })
     }
 }

@@ -9,6 +9,7 @@ export class EventService {
   record(input: {
     eventType: EventType;
     registrationId?: string | null;
+    userId?: string | null;
     campaignId?: string | null;
     videoId?: string | null;
     experimentId?: string | null;
@@ -27,6 +28,7 @@ export class EventService {
       id: randomUUID(),
       eventType: input.eventType,
       registrationId: input.registrationId ?? null,
+      userId: input.userId ?? null,
       campaignId: input.campaignId ?? null,
       videoId: input.videoId ?? null,
       experimentId: input.experimentId ?? null,

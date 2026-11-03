@@ -21,13 +21,17 @@ import androidx.compose.ui.unit.dp
 import com.example.engagevideopush.BuildConfig
 import com.example.engagevideopush.EngageApplication
 import com.example.engagevideopush.push.PushState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun DeviceScreen() {
     val app = LocalContext.current.applicationContext as EngageApplication
     val sdk by PushState.sdkStatus.collectAsState()
+    val callback by PushState.sdkCallback.collectAsState()
     val connected by PushState.connected.collectAsState()
+    val health by PushState.backendHealth.collectAsState()
     val registrationId by PushState.registrationId.collectAsState()
     val deviceType by PushState.deviceType.collectAsState()
     val backend by PushState.backendStatus.collectAsState()
@@ -40,10 +44,12 @@ fun DeviceScreen() {
     Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp)) {
         Text("Device", style = MaterialTheme.typography.headlineSmall)
         StatusRow("SDK", sdk)
+        StatusRow("SDK callback", callback)
         StatusRow("Data center site", BuildConfig.ENGAGELAB_APP_SITE.ifBlank { "not set" })
         StatusRow("Connection", if (connected) "connected" else "not connected")
         StatusRow("Device type", deviceType)
         StatusRow("Registration ID", registrationId.ifBlank { "Not available yet. This is not simulated." })
+        StatusRow("Backend health", health)
         StatusRow("Backend", backend)
         StatusRow("Tag sync", tags)
         StatusRow("Notifications", when (permission) { true -> "granted"; false -> "denied"; null -> "unknown" })
@@ -51,6 +57,18 @@ fun DeviceScreen() {
         error?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp)) }
         note?.let { Text(it, modifier = Modifier.padding(top = 8.dp)) }
         Button(onClick = { app.refreshRegistrationId() }, modifier = Modifier.padding(top = 16.dp)) { Text("Refresh Registration ID") }
+        Button(onClick = {
+            app.scope.launch {
+                val installationId = app.preferences.installationId()
+                withContext(Dispatchers.IO) {
+                    runCatching { app.backend.detachInstallation(installationId) }
+                    runCatching { app.backend.logout() }
+                }
+                app.session.clear()
+                app.backend.sessionToken = null
+                PushState.authenticated.value = false
+            }
+        }, modifier = Modifier.padding(top = 8.dp)) { Text("Sign out") }
         OutlinedTextField(
             value = backendUrl,
             onValueChange = { backendUrl = it },

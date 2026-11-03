@@ -1,6 +1,7 @@
 package com.example.engagevideopush
 
 import com.example.engagevideopush.playback.PlaybackSession
+import com.example.engagevideopush.playback.playerAspectRatio
 import com.example.engagevideopush.playback.formatPlaybackTime
 import com.example.engagevideopush.push.PushPayloadParser
 import org.junit.Assert.assertEquals
@@ -10,6 +11,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlaybackSessionTest {
+    @Test
+    fun portraitVideoKeepsItsAspectAndUnknownSizeUsesWidescreen() {
+        assertEquals(1080f / 1920f, playerAspectRatio(1080, 1920), 0.001f)
+        assertEquals(16f / 9f, playerAspectRatio(0, 0), 0.001f)
+    }
+
     @Test
     fun playAndPauseKeepTheSameMediaAndPosition() {
         val session = PlaybackSession()

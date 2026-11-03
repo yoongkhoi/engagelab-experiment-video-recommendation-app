@@ -31,6 +31,8 @@ export interface DeviceRow {
   engagelab_tags: string | null;
   device_type: Device['deviceType'];
   installation_id: string | null;
+  user_id: string | null;
+  notification_enabled: number | null;
 }
 
 export interface CampaignRow {
@@ -102,6 +104,7 @@ export interface EventRow {
   metadata: string | null;
   occurred_at: string;
   created_at: string;
+  user_id: string | null;
 }
 
 export function mapVideo(row: VideoRow): Video {
@@ -127,6 +130,8 @@ export function mapDevice(row: DeviceRow): Device {
     platform: row.platform,
     deviceType: row.device_type ?? null,
     installationId: row.installation_id ?? null,
+    userId: row.user_id ?? null,
+    notificationEnabled: row.notification_enabled !== 0,
     categories: parseJson(row.categories, []),
     appVersion: row.app_version,
     registeredAt: row.registered_at,
@@ -203,6 +208,7 @@ export function mapEvent(row: EventRow): AppEvent {
     id: row.id,
     eventType: row.event_type,
     registrationId: row.registration_id,
+    userId: row.user_id ?? null,
     campaignId: row.campaign_id,
     videoId: row.video_id,
     experimentId: row.experiment_id,

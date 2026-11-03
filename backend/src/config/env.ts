@@ -23,6 +23,13 @@ const envSchema = z.object({
   ANDROID_PACKAGE_NAME: z.string().min(1).default('com.example.engagevideopush'),
   DEMO_MODE: z.enum(['auto', 'true', 'false']).default('auto'),
   PIXABAY_API_KEY: z.string().optional().default(''),
+  SESSION_PEPPER: z.string().min(16, 'SESSION_PEPPER must be at least 16 characters'),
+  AUTH_EMAIL_MODE: z.enum(['auto', 'test', 'smtp']).default('auto'),
+  SMTP_SERVER: z.string().optional().default(''),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_USERNAME: z.string().optional().default(''),
+  SMTP_PASSWORD: z.string().optional().default(''),
+  SENDER_EMAIL: z.string().optional().default(''),
 });
 
 export interface EngageLabConfig {
@@ -45,6 +52,15 @@ export interface AppConfig {
   mode: 'live' | 'demo';
   engagelab: EngageLabConfig;
   pixabayApiKey: string;
+  sessionPepper: string;
+  email: {
+    mode: 'smtp' | 'test';
+    host: string;
+    port: number;
+    username: string;
+    password: string;
+    from: string;
+  };
 }
 
 export function loadConfig(source: NodeJS.ProcessEnv): AppConfig {
@@ -98,6 +114,18 @@ export function loadConfig(source: NodeJS.ProcessEnv): AppConfig {
     );
   }
 
+  const smtpHost = env.SMTP_SERVER.trim();
+  const smtpUser = env.SMTP_USERNAME.trim();
+  const smtpPassword = env.SMTP_PASSWORD.trim();
+  const sender = env.SENDER_EMAIL.trim();
+  const smtpReady = Boolean(smtpHost && smtpUser && smtpPassword && sender);
+  const emailMode = env.AUTH_EMAIL_MODE === 'smtp' || (env.AUTH_EMAIL_MODE === 'auto' && smtpReady) ? 'smtp' : 'test';
+  if (emailMode === 'smtp') {
+    if (!smtpReady) throw new Error('SMTP mode requires SMTP_SERVER, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, and SENDER_EMAIL.');
+    if (env.SMTP_PORT !== 587) throw new Error('SMTP_PORT must be 587 so the server can use STARTTLS.');
+    if (!/^[^\s@]+@[^\s@]+$/.test(sender)) throw new Error('SENDER_EMAIL must be an email address.');
+  }
+
   return {
     port: env.PORT,
     databaseUrl: env.DATABASE_URL,
@@ -107,6 +135,8 @@ export function loadConfig(source: NodeJS.ProcessEnv): AppConfig {
     androidPackageName: env.ANDROID_PACKAGE_NAME,
     mode: hasAll ? 'live' : 'demo',
     pixabayApiKey,
+    sessionPepper: env.SESSION_PEPPER,
+    email: { mode: emailMode, host: smtpHost, port: env.SMTP_PORT, username: smtpUser, password: smtpPassword, from: sender },
     engagelab: {
       configured: hasAll,
       appKey,

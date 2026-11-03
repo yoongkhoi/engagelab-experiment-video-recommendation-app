@@ -76,6 +76,8 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.5.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.security:security-crypto:1.0.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("com.engagelab:engagelab:5.4.0")

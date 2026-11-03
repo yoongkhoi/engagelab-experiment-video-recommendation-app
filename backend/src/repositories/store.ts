@@ -96,8 +96,8 @@ export class Store {
   insertDevice(input: Device & { deviceToken: string }): void {
     this.db.run(
       `INSERT INTO devices
-        (id, registration_id, platform, categories, device_token, app_version, registered_at, updated_at, last_seen_at, tag_sync_status, tag_sync_error, tag_synced_at, engagelab_tags, device_type, installation_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, registration_id, platform, categories, device_token, app_version, registered_at, updated_at, last_seen_at, tag_sync_status, tag_sync_error, tag_synced_at, engagelab_tags, device_type, installation_id, user_id, notification_enabled)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       input.id,
       input.registrationId,
       input.platform,
@@ -113,12 +113,14 @@ export class Store {
       input.engagelabTags ? JSON.stringify(input.engagelabTags) : null,
       input.deviceType,
       input.installationId,
+      input.userId,
+      input.notificationEnabled ? 1 : 0,
     );
   }
 
   updateDevice(input: Device): void {
     this.db.run(
-      `UPDATE devices SET registration_id=?, platform=?, categories=?, app_version=?, updated_at=?, last_seen_at=?, tag_sync_status=?, tag_sync_error=?, tag_synced_at=?, engagelab_tags=?, device_type=?, installation_id=? WHERE id=?`,
+      `UPDATE devices SET registration_id=?, platform=?, categories=?, app_version=?, updated_at=?, last_seen_at=?, tag_sync_status=?, tag_sync_error=?, tag_synced_at=?, engagelab_tags=?, device_type=?, installation_id=?, user_id=?, notification_enabled=? WHERE id=?`,
       input.registrationId,
       input.platform,
       JSON.stringify(input.categories),
@@ -131,6 +133,8 @@ export class Store {
       input.engagelabTags ? JSON.stringify(input.engagelabTags) : null,
       input.deviceType,
       input.installationId,
+      input.userId,
+      input.notificationEnabled ? 1 : 0,
       input.id,
     );
   }
@@ -296,8 +300,8 @@ export class Store {
   insertEvent(event: AppEvent): void {
     this.db.run(
       `INSERT INTO events
-        (id, event_type, registration_id, campaign_id, video_id, experiment_id, variant, dedupe_key, source, metadata, occurred_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (id, event_type, registration_id, campaign_id, video_id, experiment_id, variant, dedupe_key, source, metadata, occurred_at, created_at, user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       event.id,
       event.eventType,
       event.registrationId,
@@ -310,6 +314,7 @@ export class Store {
       event.metadata === null || event.metadata === undefined ? null : JSON.stringify(event.metadata),
       event.occurredAt,
       event.createdAt,
+      event.userId,
     );
   }
 
@@ -359,5 +364,115 @@ export class Store {
     }
     const sql = `SELECT COUNT(*) AS count FROM events${where.length ? ` WHERE ${where.join(' AND ')}` : ''}`;
     return this.db.get<{ count: number }>(sql, ...params)?.count ?? 0;
+  }
+
+  insertUser(user: import('../domain.js').AppUser): void {
+    this.db.run(
+      `INSERT INTO users (id, normalized_email, display_name, created_at, updated_at, last_login_at, account_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      user.id, user.normalizedEmail, user.displayName, user.createdAt, user.updatedAt, user.lastLoginAt, user.accountStatus,
+    );
+  }
+
+  getUserByEmail(email: string): import('../domain.js').AppUser | undefined {
+    return this.db.get(
+      `SELECT id, normalized_email AS normalizedEmail, display_name AS displayName, created_at AS createdAt,
+              updated_at AS updatedAt, last_login_at AS lastLoginAt, account_status AS accountStatus
+       FROM users WHERE normalized_email = ?`,
+      email,
+    );
+  }
+
+  getUser(id: string): import('../domain.js').AppUser | undefined {
+    return this.db.get(
+      `SELECT id, normalized_email AS normalizedEmail, display_name AS displayName, created_at AS createdAt,
+              updated_at AS updatedAt, last_login_at AS lastLoginAt, account_status AS accountStatus
+       FROM users WHERE id = ?`,
+      id,
+    );
+  }
+
+  touchUserLogin(id: string, at: string): void {
+    this.db.run('UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?', at, at, id);
+  }
+
+  insertChallenge(row: { id: string; email: string; otpHash: string; expiresAt: string; createdAt: string; requestIp: string | null }): void {
+    this.db.run(
+      `INSERT INTO auth_challenges (id, normalized_email, otp_hash, expires_at, attempts, consumed_at, request_ip, created_at)
+       VALUES (?, ?, ?, ?, 0, NULL, ?, ?)`,
+      row.id, row.email, row.otpHash, row.expiresAt, row.requestIp, row.createdAt,
+    );
+  }
+
+  latestChallenge(email: string): { id: string; otpHash: string; expiresAt: string; attempts: number; consumedAt: string | null; createdAt: string } | undefined {
+    return this.db.get(
+      `SELECT id, otp_hash AS otpHash, expires_at AS expiresAt, attempts, consumed_at AS consumedAt, created_at AS createdAt
+       FROM auth_challenges WHERE normalized_email = ? ORDER BY created_at DESC LIMIT 1`,
+      email,
+    );
+  }
+
+  countChallengesSince(email: string, since: string): number {
+    return this.db.get<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM auth_challenges WHERE normalized_email = ? AND created_at >= ?',
+      email, since,
+    )?.count ?? 0;
+  }
+
+  countChallengesByIpSince(ip: string, since: string): number {
+    return this.db.get<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM auth_challenges WHERE request_ip = ? AND created_at >= ?',
+      ip, since,
+    )?.count ?? 0;
+  }
+
+  markChallengeAttempt(id: string, attempts: number, consumedAt: string | null): void {
+    this.db.run('UPDATE auth_challenges SET attempts = ?, consumed_at = ? WHERE id = ?', attempts, consumedAt, id);
+  }
+
+  insertSession(row: { id: string; userId: string; tokenHash: string; expiresAt: string; createdAt: string }): void {
+    this.db.run(
+      `INSERT INTO sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (?, ?, ?, ?, NULL, ?)`,
+      row.id, row.userId, row.tokenHash, row.expiresAt, row.createdAt,
+    );
+  }
+
+  getSessionByHash(tokenHash: string): { id: string; userId: string; expiresAt: string; revokedAt: string | null } | undefined {
+    return this.db.get(
+      `SELECT id, user_id AS userId, expires_at AS expiresAt, revoked_at AS revokedAt FROM sessions WHERE token_hash = ?`,
+      tokenHash,
+    );
+  }
+
+  revokeSession(tokenHash: string, at: string): void {
+    this.db.run('UPDATE sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL', at, tokenHash);
+  }
+
+  getPreferences(userId: string): import('../domain.js').UserPreferenceRecord | undefined {
+    const row = this.db.get<{ userId: string; categories: string; createdAt: string; updatedAt: string }>(
+      `SELECT user_id AS userId, categories, created_at AS createdAt, updated_at AS updatedAt FROM user_preferences WHERE user_id = ?`,
+      userId,
+    );
+    if (!row) return undefined;
+    return { ...row, categories: JSON.parse(row.categories) };
+  }
+
+  savePreferences(record: import('../domain.js').UserPreferenceRecord): void {
+    this.db.run(
+      `INSERT INTO user_preferences (user_id, categories, created_at, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET categories = excluded.categories, updated_at = excluded.updated_at`,
+      record.userId, JSON.stringify(record.categories), record.createdAt, record.updatedAt,
+    );
+  }
+
+  clearDeviceUser(installationId: string, userId: string): void {
+    this.db.run(
+      'UPDATE devices SET user_id = NULL, updated_at = ? WHERE installation_id = ? AND user_id = ?',
+      new Date().toISOString(), installationId, userId,
+    );
+  }
+
+  disassociateDevice(id: string): void {
+    this.db.run('UPDATE devices SET user_id = NULL, updated_at = ? WHERE id = ?', new Date().toISOString(), id);
   }
 }

@@ -32,6 +32,8 @@ export class DeviceService {
     appVersion?: string;
     deviceType?: Device['deviceType'];
     installationId?: string;
+    userId?: string | null;
+    notificationEnabled?: boolean;
   }): Promise<{ device: Device; deviceToken: string; created: boolean; note: string }> {
     const registrationId = input.registrationId.trim();
     if (!registrationId) {
@@ -54,6 +56,8 @@ export class DeviceService {
         platform: input.platform,
         deviceType: input.deviceType ?? null,
         installationId,
+        userId: input.userId ?? null,
+        notificationEnabled: input.notificationEnabled ?? true,
         categories,
         appVersion: input.appVersion ?? null,
         registeredAt: now,
@@ -88,6 +92,8 @@ export class DeviceService {
       platform: input.platform,
       deviceType: input.deviceType ?? existing.deviceType,
       installationId: installationId ?? existing.installationId,
+      userId: input.userId !== undefined ? input.userId : existing.userId,
+      notificationEnabled: input.notificationEnabled ?? existing.notificationEnabled,
       categories,
       appVersion: input.appVersion ?? existing.appVersion,
       updatedAt: now,
