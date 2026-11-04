@@ -22,6 +22,9 @@ import { AuthService } from './services/authService.js';
 import { createMailer, type Mailer } from './services/mailer.js';
 import { VideoService } from './services/videoService.js';
 import { HttpError } from './errors.js';
+import { HttpAiClient, type AiClient } from './services/aiClient.js';
+import { PersonalStore } from './repositories/personalStore.js';
+import { attachPersonalRoutes } from './routes/personal.js';
 import {
   campaignSchema,
   eventSchema,
@@ -29,6 +32,7 @@ import {
   detachDeviceSchema,
   otpRequestSchema,
   otpVerifySchema,
+  profileSchema,
   preferencesSchema,
   pushPreviewSchema,
   registerDeviceSchema,
@@ -44,6 +48,7 @@ export interface AppOptions {
   sqlite?: Sqlite;
   fetchImpl?: typeof fetch;
   mailer?: Mailer;
+  ai?: AiClient;
 }
 
 export function createApp(options: AppOptions) {
@@ -65,6 +70,17 @@ export function createApp(options: AppOptions) {
   function bearerToken(req: AuthedRequest): string {
     const header = req.header('authorization') ?? '';
     return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  }
+
+  function publicUser(user: { id: string; normalizedEmail: string; displayName: string | null; createdAt: string; lastLoginAt: string | null; accountStatus: string }) {
+    return {
+      id: user.id,
+      email: user.normalizedEmail,
+      displayName: user.displayName,
+      createdAt: user.createdAt,
+      lastLoginAt: user.lastLoginAt,
+      accountStatus: user.accountStatus,
+    };
   }
 
   function requireUser(req: AuthedRequest) {
@@ -129,8 +145,17 @@ export function createApp(options: AppOptions) {
 
   app.get('/api/me', (req, res, next) => {
     try {
+      res.json({ user: publicUser(requireUser(req)) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put('/api/me', (req, res, next) => {
+    try {
       const user = requireUser(req);
-      res.json({ user: { id: user.id, email: user.normalizedEmail, createdAt: user.createdAt, lastLoginAt: user.lastLoginAt, accountStatus: user.accountStatus } });
+      const body = profileSchema.parse(req.body);
+      res.json({ user: publicUser(auth.updateDisplayName(user.id, body.displayName)) });
     } catch (error) {
       next(error);
     }
@@ -497,6 +522,12 @@ export function createApp(options: AppOptions) {
     } catch (error) {
       next(error);
     }
+  });
+
+  const personal = new PersonalStore(sqlite);
+  const ai = options.ai ?? new HttpAiClient(options.config.aiServiceUrl, options.config.aiTimeoutMs, options.fetchImpl ?? fetch);
+  attachPersonalRoutes(app, {
+    store, personal, requireUser, optionalUser, requireAdmin, ai, pixabay, videos, campaigns, config: options.config,
   });
 
   app.use(notFound);

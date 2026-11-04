@@ -396,6 +396,10 @@ export class Store {
     this.db.run('UPDATE users SET last_login_at = ?, updated_at = ? WHERE id = ?', at, at, id);
   }
 
+  updateDisplayName(id: string, displayName: string, at: string): void {
+    this.db.run('UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?', displayName, at, id);
+  }
+
   insertChallenge(row: { id: string; email: string; otpHash: string; expiresAt: string; createdAt: string; requestIp: string | null }): void {
     this.db.run(
       `INSERT INTO auth_challenges (id, normalized_email, otp_hash, expires_at, attempts, consumed_at, request_ip, created_at)
@@ -474,5 +478,17 @@ export class Store {
 
   disassociateDevice(id: string): void {
     this.db.run('UPDATE devices SET user_id = NULL, updated_at = ? WHERE id = ?', new Date().toISOString(), id);
+  }
+
+  devicesForUser(userId: string): Device[] {
+    return this.db.all<DeviceRow>('SELECT * FROM devices WHERE user_id = ? ORDER BY updated_at DESC', userId).map(mapDevice);
+  }
+
+  listUsers(): import('../domain.js').AppUser[] {
+    return this.db.all(
+      `SELECT id, normalized_email AS normalizedEmail, display_name AS displayName, created_at AS createdAt,
+              updated_at AS updatedAt, last_login_at AS lastLoginAt, account_status AS accountStatus
+       FROM users ORDER BY created_at DESC`,
+    );
   }
 }

@@ -30,6 +30,8 @@ const envSchema = z.object({
   SMTP_USERNAME: z.string().optional().default(''),
   SMTP_PASSWORD: z.string().optional().default(''),
   SENDER_EMAIL: z.string().optional().default(''),
+  AI_SERVICE_URL: z.string().optional().default('http://127.0.0.1:8000'),
+  AI_SERVICE_TIMEOUT_MS: z.coerce.number().int().positive().max(60000).default(45000),
 });
 
 export interface EngageLabConfig {
@@ -61,6 +63,8 @@ export interface AppConfig {
     password: string;
     from: string;
   };
+  aiServiceUrl: string;
+  aiTimeoutMs: number;
 }
 
 export function loadConfig(source: NodeJS.ProcessEnv): AppConfig {
@@ -137,6 +141,8 @@ export function loadConfig(source: NodeJS.ProcessEnv): AppConfig {
     pixabayApiKey,
     sessionPepper: env.SESSION_PEPPER,
     email: { mode: emailMode, host: smtpHost, port: env.SMTP_PORT, username: smtpUser, password: smtpPassword, from: sender },
+    aiServiceUrl: env.AI_SERVICE_URL.trim().replace(/\/+$/, '') || 'http://127.0.0.1:8000',
+    aiTimeoutMs: env.AI_SERVICE_TIMEOUT_MS,
     engagelab: {
       configured: hasAll,
       appKey,

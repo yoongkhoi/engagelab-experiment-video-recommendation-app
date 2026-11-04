@@ -8,6 +8,12 @@ export function tagReady(mode: string, acknowledged: boolean): boolean {
   return acknowledged;
 }
 
+export function targetedPreview(willSend: number, broadcast: boolean): 'blocked' | 'ready' | 'no-targets' {
+  if (broadcast) return 'blocked';
+  if (willSend > 0) return 'ready';
+  return 'no-targets';
+}
+
 export function maskRegistrationId(value: string): string {
   if (value.length <= 8) return '••••';
   return `${value.slice(0, 4)}…${value.slice(-4)}`;

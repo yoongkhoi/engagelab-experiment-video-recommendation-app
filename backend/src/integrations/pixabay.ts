@@ -43,6 +43,8 @@ export interface PublicVideo {
   thumbnail_url: string | null;
   active: true;
   duration: number;
+  width: number | null;
+  height: number | null;
   creator_name: string;
   creator_profile_url: string;
   source_url: string;
@@ -66,12 +68,17 @@ interface CacheEntry<T> {
  * Pixabay documents medium and smaller renditions for every video.
  * large can be an empty URL. Prefer medium, then small, then tiny, then a real large file.
  */
-export function selectMp4(streams: PixabayStreams | undefined): { url: string; thumbnail: string | null } | undefined {
+export function selectMp4(streams: PixabayStreams | undefined): { url: string; thumbnail: string | null; width: number | null; height: number | null } | undefined {
   for (const rendition of [streams?.medium, streams?.small, streams?.tiny, streams?.large]) {
     const url = rendition?.url ?? '';
     if (!url.startsWith('https://') || !url.includes('.mp4') || url.includes('.m3u8')) continue;
     const thumbnail = rendition?.thumbnail?.startsWith('https://') ? rendition.thumbnail : null;
-    return { url, thumbnail };
+    return {
+      url,
+      thumbnail,
+      width: typeof rendition?.width === 'number' ? rendition.width : null,
+      height: typeof rendition?.height === 'number' ? rendition.height : null,
+    };
   }
   return undefined;
 }
@@ -119,6 +126,8 @@ export function normalizePixabayVideo(raw: unknown, category: string): PublicVid
     thumbnail_url: selected.thumbnail,
     active: true,
     duration,
+    width: selected.width,
+    height: selected.height,
     creator_name: creator,
     creator_profile_url: profile,
     source_url: pageUrl,

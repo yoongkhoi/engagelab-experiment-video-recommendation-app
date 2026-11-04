@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,7 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun AuthScreen(onSignedIn: () -> Unit) {
+fun AuthScreen(onSignedIn: () -> Unit, onBack: (() -> Unit)? = null, title: String = "Sign in") {
     val app = LocalContext.current.applicationContext as EngageApplication
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
@@ -39,26 +40,27 @@ fun AuthScreen(onSignedIn: () -> Unit) {
     var message by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    val ink = Color(0xFFF7F1E8)
-    val muted = Color(0xFFD5CBBC)
+    val ink = Color.White
+    val muted = Color(0xFFB3B3B3)
     val fieldColors = OutlinedTextFieldDefaults.colors(
         focusedTextColor = ink,
         unfocusedTextColor = ink,
         disabledTextColor = muted,
-        focusedLabelColor = Color(0xFFE7C27A),
+        focusedLabelColor = Color(0xFFFF5A36),
         unfocusedLabelColor = muted,
         cursorColor = Color(0xFFFF5A36),
         focusedBorderColor = Color(0xFFFF5A36),
-        unfocusedBorderColor = Color(0xFF8D8478),
+        unfocusedBorderColor = Color(0xFF3A3A3A),
     )
     Column(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF0E1116))
+            .background(Color(0xFF121212))
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
     ) {
-        Text("Sign in", style = MaterialTheme.typography.headlineMedium, color = ink)
+        onBack?.let { TextButton(onClick = it) { Text("Browse as guest") } }
+        Text(title, style = MaterialTheme.typography.headlineMedium, color = ink)
         Text(
             "Use the email address where you can receive a one-time code. A new address creates an account.",
             color = muted,

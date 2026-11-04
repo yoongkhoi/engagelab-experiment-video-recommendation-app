@@ -18,6 +18,8 @@ data class VideoItem(
 
 data class AuthSession(val token: String, val expiresAt: String, val email: String)
 
+data class AccountProfile(val email: String, val displayName: String?)
+
 data class RegistrationResult(
     val deviceToken: String,
     val tagSyncStatus: String,

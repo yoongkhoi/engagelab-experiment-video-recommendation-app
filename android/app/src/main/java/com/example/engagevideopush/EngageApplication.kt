@@ -10,6 +10,7 @@ import android.util.Log
 import com.engagelab.privates.core.api.MTCorePrivatesApi
 import com.engagelab.privates.push.api.MTPushPrivatesApi
 import com.example.engagevideopush.data.BackendApi
+import com.example.engagevideopush.data.LibraryStore
 import com.example.engagevideopush.data.BackendException
 import com.example.engagevideopush.data.SessionStore
 import com.example.engagevideopush.data.UserPreferences
@@ -31,6 +32,7 @@ class EngageApplication : Application() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val registrationLock = Mutex()
     lateinit var preferences: UserPreferences
+    lateinit var library: LibraryStore
     lateinit var session: SessionStore
     lateinit var backend: BackendApi
     lateinit var repository: VideoRepository
@@ -45,6 +47,7 @@ class EngageApplication : Application() {
         instance = this
         createChannel()
         preferences = UserPreferences(this)
+        library = LibraryStore(this)
         session = SessionStore(this)
         backend = BackendApi("")
         backend.sessionToken = session.token()

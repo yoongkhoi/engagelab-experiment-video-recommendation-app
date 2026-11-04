@@ -7,6 +7,7 @@ import { ExperimentsPage } from './pages/Experiments';
 import { HistoryPage } from './pages/History';
 import { OverviewPage } from './pages/Overview';
 import { VideosPage } from './pages/Videos';
+import { AiAnalyticsPage, LibraryPage } from './pages/Library';
 
 interface Status {
   mode: 'live' | 'demo';
@@ -23,6 +24,8 @@ export function App() {
         <div className="brand">Engage<span>Video</span>Push</div>
         <NavLink to="/" end>Overview</NavLink>
         <NavLink to="/videos">Videos</NavLink>
+        <NavLink to="/library">Library</NavLink>
+        <NavLink to="/ai">AI analytics</NavLink>
         <NavLink to="/devices">Devices</NavLink>
         <NavLink to="/compose">Compose</NavLink>
         <NavLink to="/experiments">A/B tests</NavLink>
@@ -34,6 +37,8 @@ export function App() {
         <Routes>
           <Route path="/" element={<OverviewPage />} />
           <Route path="/videos" element={<VideosPage />} />
+          <Route path="/library" element={<LibraryPage />} />
+          <Route path="/ai" element={<AiAnalyticsPage />} />
           <Route path="/devices" element={<DevicesPage />} />
           <Route path="/compose" element={<ComposerPage />} />
           <Route path="/experiments" element={<ExperimentsPage />} />

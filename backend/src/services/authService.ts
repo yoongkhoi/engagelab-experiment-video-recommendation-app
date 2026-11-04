@@ -112,6 +112,14 @@ export class AuthService {
     };
   }
 
+  updateDisplayName(userId: string, displayName: string): AppUser {
+    const user = this.store.getUser(userId);
+    if (!user || user.accountStatus !== 'active') throw new HttpError(401, 'SESSION_EXPIRED', 'Sign in again.');
+    const now = nowIso();
+    this.store.updateDisplayName(userId, displayName, now);
+    return { ...user, displayName, updatedAt: now };
+  }
+
   savePreferences(userId: string, categories: VideoPreference[]): UserPreferenceRecord {
     const existing = this.store.getPreferences(userId);
     const now = nowIso();

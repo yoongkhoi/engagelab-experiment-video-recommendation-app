@@ -39,6 +39,15 @@ describe('email OTP', () => {
     const me = await request(app).get('/api/me').set('Authorization', `Bearer ${verified.body.token}`);
     expect(me.status).toBe(200);
     expect(me.body.user.email).toBe('person@example.com');
+    expect(me.body.user.displayName).toBeNull();
+
+    const renamed = await request(app).put('/api/me').set('Authorization', `Bearer ${verified.body.token}`).send({ displayName: '  Alex  ' });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.user.displayName).toBe('Alex');
+    const blank = await request(app).put('/api/me').set('Authorization', `Bearer ${verified.body.token}`).send({ displayName: '   ' });
+    expect(blank.status).toBe(400);
+    const outsider = await request(app).put('/api/me').send({ displayName: 'Alex' });
+    expect(outsider.status).toBe(401);
 
     const other = await request(app).get('/api/me/preferences').set('Authorization', 'Bearer not-a-session');
     expect(other.status).toBe(401);

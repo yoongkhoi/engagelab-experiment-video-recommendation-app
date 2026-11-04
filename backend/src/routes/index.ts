@@ -8,6 +8,7 @@ export const publicRoutes = [
     'POST /api/auth/otp/verify',
     'POST /api/auth/logout',
     'GET /api/me',
+    'PUT /api/me',
     'GET /api/me/preferences',
     'PUT /api/me/preferences',
     'POST /api/devices/register',

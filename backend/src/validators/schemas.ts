@@ -56,6 +56,10 @@ export const videoPreferencesSchema = z.object({
   categories: z.array(z.enum(VIDEO_PREFERENCE_CATEGORIES)).max(VIDEO_PREFERENCE_CATEGORIES.length),
 });
 
+export const profileSchema = z.object({
+  displayName: z.string().trim().min(1).max(40),
+});
+
 export const detachDeviceSchema = z.object({
   installationId: z.string().trim().min(8).max(64),
 });

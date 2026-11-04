@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { broadcastReady, maskRegistrationId, tagReady } from './rules';
+import { broadcastReady, maskRegistrationId, tagReady, targetedPreview } from './rules';
 
 describe('campaign confirmation rules', () => {
   it('requires the SEND confirmation only for broadcast', () => {
@@ -13,6 +13,12 @@ describe('campaign confirmation rules', () => {
     expect(tagReady('tag', false)).toBe(false);
     expect(tagReady('tag', true)).toBe(true);
     expect(tagReady('category', false)).toBe(true);
+  });
+
+  it('never treats a library preview as a broadcast', () => {
+    expect(targetedPreview(2, false)).toBe('ready');
+    expect(targetedPreview(0, false)).toBe('no-targets');
+    expect(targetedPreview(2, true)).toBe('blocked');
   });
 
   it('masks registration ids', () => {

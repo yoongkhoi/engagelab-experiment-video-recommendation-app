@@ -5,14 +5,25 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
+object EngageColors {
+    val background = Color(0xFF121212)
+    val surface = Color(0xFF242424)
+    val text = Color.White
+    val muted = Color(0xFFB3B3B3)
+    val accent = Color(0xFFFF5A36)
+}
+
 private val colors = darkColorScheme(
-    primary = Color(0xFFFF5A36),
+    primary = EngageColors.accent,
     onPrimary = Color.White,
-    background = Color(0xFF0E1116),
-    surface = Color(0xFF171C24),
-    onBackground = Color(0xFFF4EFE6),
-    onSurface = Color(0xFFF4EFE6),
-    secondary = Color(0xFFE7C27A),
+    background = EngageColors.background,
+    surface = EngageColors.surface,
+    surfaceVariant = Color(0xFF2A2A2A),
+    onBackground = EngageColors.text,
+    onSurface = EngageColors.text,
+    onSurfaceVariant = EngageColors.muted,
+    secondary = EngageColors.muted,
+    error = Color(0xFFFFB4A8),
 )
 
 @Composable

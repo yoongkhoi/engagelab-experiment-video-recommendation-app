@@ -42,7 +42,8 @@ fun DeviceScreen() {
     var backendUrl by remember { mutableStateOf(app.backend.baseUrl) }
 
     Column(Modifier.verticalScroll(rememberScrollState()).padding(20.dp)) {
-        Text("Device", style = MaterialTheme.typography.headlineSmall)
+        Text("Device details", style = MaterialTheme.typography.headlineSmall)
+        Text("SDK Diagnostics", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 4.dp))
         StatusRow("SDK", sdk)
         StatusRow("SDK callback", callback)
         StatusRow("Data center site", BuildConfig.ENGAGELAB_APP_SITE.ifBlank { "not set" })

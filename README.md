@@ -163,5 +163,6 @@ Screenshots were not captured in this environment because no emulator was attach
 - [Android setup](docs/ANDROID_SETUP.md)
 - [Testing](docs/TESTING.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [AI pipeline and phases 2–4](docs/PHASE2_4.md)
 - [Demo script](docs/DEMO_SCRIPT.md)
 - [Interview guide](docs/INTERVIEW_GUIDE.md)

@@ -73,6 +73,7 @@ fun PlayerScreen(
     playlistIds: List<String>,
     playlistVideos: List<VideoItem>,
     onBack: () -> Unit,
+    onSignIn: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val app = context.applicationContext as EngageApplication
@@ -162,6 +163,10 @@ fun PlayerScreen(
             return@LaunchedEffect
         }
         video = resolved
+        app.scope.launch {
+            app.library.rememberWatched(resolved.id)
+            if (app.backend.sessionToken != null) runCatching { app.backend.recordHistory(resolved) }
+        }
         val ordered = orderedClips(clips, resolved)
         val items = ordered.mapNotNull { item ->
             val uri = app.repository.playbackUri(item) ?: return@mapNotNull null
@@ -244,6 +249,9 @@ fun PlayerScreen(
         Button(onClick = onBack) { Text("Back") }
         Text(video?.title ?: "Video $videoId", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(vertical = 8.dp))
         Text(video?.category.orEmpty())
+        video?.let { current ->
+            FavoriteButton(current.id, onSignIn)
+        }
         val creator = video?.creatorName
         if (!creator.isNullOrBlank()) {
             TextButton(onClick = { openHttps(context, video?.sourceUrl ?: video?.creatorProfileUrl) }) {

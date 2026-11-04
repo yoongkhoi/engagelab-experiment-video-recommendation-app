@@ -210,6 +210,111 @@ export function migrate(db: Sqlite): void {
 
     CREATE INDEX IF NOT EXISTS events_campaign_idx ON events(campaign_id, event_type);
     CREATE INDEX IF NOT EXISTS events_video_idx ON events(video_id, event_type);
+
+    CREATE TABLE IF NOT EXISTS favorites (
+      user_id TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      thumbnail_url TEXT,
+      category TEXT,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, video_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS watch_history (
+      user_id TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      thumbnail_url TEXT,
+      category TEXT,
+      watched_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, video_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_conversations (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      guest_key TEXT,
+      title TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      metadata TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS recommendation_feedback (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      conversation_id TEXT,
+      video_id TEXT NOT NULL,
+      sentiment TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_preferences (
+      user_id TEXT PRIMARY KEY,
+      push_enabled INTEGER NOT NULL DEFAULT 1,
+      new_in_interests INTEGER NOT NULL DEFAULT 1,
+      ai_recommendations INTEGER NOT NULL DEFAULT 0,
+      trending INTEGER NOT NULL DEFAULT 0,
+      daily_digest INTEGER NOT NULL DEFAULT 0,
+      frequency TEXT NOT NULL DEFAULT 'instant',
+      quiet_start TEXT,
+      quiet_end TEXT,
+      categories TEXT NOT NULL DEFAULT '[]',
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS library_entries (
+      video_id TEXT PRIMARY KEY,
+      library_state TEXT NOT NULL,
+      keywords TEXT NOT NULL,
+      tags TEXT NOT NULL,
+      width INTEGER,
+      height INTEGER,
+      duration_seconds INTEGER,
+      published_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS library_campaigns (
+      id TEXT PRIMARY KEY,
+      video_id TEXT NOT NULL,
+      campaign_id TEXT,
+      status TEXT NOT NULL,
+      note TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_deliveries (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      registration_id TEXT NOT NULL,
+      campaign_id TEXT,
+      status TEXT NOT NULL,
+      reason TEXT,
+      dedupe_key TEXT NOT NULL UNIQUE,
+      deliver_after TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS favorites_user_idx ON favorites(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS watch_history_user_idx ON watch_history(user_id, watched_at);
+    CREATE INDEX IF NOT EXISTS ai_conversations_user_idx ON ai_conversations(user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS ai_messages_conversation_idx ON ai_messages(conversation_id, created_at);
+    CREATE INDEX IF NOT EXISTS recommendation_feedback_user_idx ON recommendation_feedback(user_id, video_id);
+    CREATE INDEX IF NOT EXISTS notification_deliveries_user_idx ON notification_deliveries(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS library_campaigns_video_idx ON library_campaigns(video_id, created_at);
   `);
   const columns = db.all<{ name: string }>('PRAGMA table_info(devices)').map((column) => column.name);
   if (!columns.includes('device_type')) db.exec('ALTER TABLE devices ADD COLUMN device_type TEXT');
