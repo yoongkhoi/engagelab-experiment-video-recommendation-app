@@ -6,6 +6,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +44,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -104,6 +107,7 @@ internal data class ChatLine(
     val text: String,
     val prompt: String = "",
     val videos: List<ChatVideo> = emptyList(),
+    val suggestions: List<String> = emptyList(),
 )
 
 private val prompts = listOf(
@@ -164,6 +168,7 @@ internal class AiChatModel : ViewModel() {
                     displayReply(body.optString("reply")),
                     prompt = message,
                     videos = videosOf(body),
+                    suggestions = suggestionsOf(body),
                 )
             } catch (_: CancellationException) {
                 if (ticket == generation) error = "Stopped."
@@ -247,7 +252,12 @@ fun AiScreen(onPlay: (VideoItem, List<VideoItem>) -> Unit, onSignIn: () -> Unit)
         ) {
             if (lines.isEmpty()) {
                 item {
-                    Welcome(onPrompt = { model.send(app, it) })
+                    if (!signedIn) {
+                        Text("Sign in to use the video assistant.", color = EngageColors.muted, modifier = Modifier.padding(top = 12.dp))
+                        Button(onClick = onSignIn, modifier = Modifier.padding(top = 8.dp)) { Text("Sign in") }
+                    } else {
+                        Welcome(onPrompt = { model.send(app, it) })
+                    }
                 }
             }
             items(lines, key = { it.id }) { line ->
@@ -267,6 +277,7 @@ fun AiScreen(onPlay: (VideoItem, List<VideoItem>) -> Unit, onSignIn: () -> Unit)
                             if (!signedIn) onSignIn() else model.react(app, line, sentiment)
                         },
                         onShare = { share(context, line.text) },
+                        onSuggest = { model.send(app, it) },
                         onPlay = { video -> onPlay(video, line.videos.map { it.item }) },
                         onShareVideo = { video ->
                             val page = video.sourceUrl?.takeIf { it.startsWith("https://") }
@@ -296,7 +307,7 @@ fun AiScreen(onPlay: (VideoItem, List<VideoItem>) -> Unit, onSignIn: () -> Unit)
             draft = draft,
             busy = busy,
             onDraft = { if (it.length <= 1000) model.draft = it },
-            onSend = { model.send(app, draft) },
+            onSend = { if (signedIn) model.send(app, draft) else onSignIn() },
             onStop = { model.stop() },
         )
     }
@@ -344,6 +355,7 @@ private fun AssistantBubble(
     onRetry: () -> Unit,
     onReact: (String) -> Unit,
     onShare: () -> Unit,
+    onSuggest: (String) -> Unit,
     onPlay: (VideoItem) -> Unit,
     onShareVideo: (VideoItem) -> Unit,
 ) {
@@ -364,6 +376,17 @@ private fun AssistantBubble(
             }
             line.videos.forEach { video ->
                 VideoRecommendationCard(video, onPlay = { onPlay(video.item) }, onShare = { onShareVideo(video.item) })
+            }
+            if (line.suggestions.isNotEmpty()) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    line.suggestions.forEach { suggestion ->
+                        Text(
+                            suggestion,
+                            color = EngageColors.accent,
+                            modifier = Modifier.clip(RoundedCornerShape(16.dp)).background(EngageColors.surface).clickable { onSuggest(suggestion) }.padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
             }
         }
     }
@@ -492,6 +515,11 @@ private fun displayReply(text: String): String {
     val trimmed = text.trim()
     if (trimmed.startsWith("{") || trimmed.startsWith("[")) return "I could not format that reply. Try again."
     return text.ifBlank { "Pixabay did not return a playable video for that request." }
+}
+
+private fun suggestionsOf(body: JSONObject): List<String> {
+    val array = body.optJSONArray("suggestions") ?: return emptyList()
+    return List(array.length()) { index -> array.optString(index).trim() }.filter { it.isNotEmpty() }.distinct()
 }
 
 private fun videosOf(body: JSONObject): List<ChatVideo> {

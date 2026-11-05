@@ -1,5 +1,7 @@
 # EngageVideoPush implementation audit
 
+This file is a historical audit of the tree on 2026-11-02. The current product description is `README.md`. Findings below describe that inspection, not every behavior added later.
+
 Audit date: 2026-11-02. Scope is the tree at `EngageVideoPush/` as it existed during this inspection. No application code was changed for this audit.
 
 The uploaded file `engage lab.docx` is not in the workspace and was not inspected. API and SDK comparisons below use cached copies of the current EngageLab documentation pages that were fetched earlier and re-read for this audit:

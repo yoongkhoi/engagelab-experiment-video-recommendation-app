@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun AuthScreen(onSignedIn: () -> Unit, onBack: (() -> Unit)? = null, title: String = "Sign in") {
+fun AuthScreen(onSignedIn: (Boolean) -> Unit, onBack: (() -> Unit)? = null, title: String = "Sign in") {
     val app = LocalContext.current.applicationContext as EngageApplication
     val scope = rememberCoroutineScope()
     var email by remember { mutableStateOf("") }
@@ -99,7 +99,7 @@ fun AuthScreen(onSignedIn: () -> Unit, onBack: (() -> Unit)? = null, title: Stri
                         app.session.save(session.token, session.expiresAt)
                         app.backend.sessionToken = session.token
                         app.refreshRegistrationId()
-                        onSignedIn()
+                        onSignedIn(session.onboardingCompleted)
                     } catch (reason: Exception) {
                         error = reason.message ?: "The code was not accepted."
                     } finally {

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CATEGORIES, EVENT_TYPES, VIDEO_PREFERENCE_CATEGORIES } from '../domain.js';
 
 const category = z.enum(CATEGORIES);
+const targetingCategory = z.enum([...new Set([...CATEGORIES, ...VIDEO_PREFERENCE_CATEGORIES])] as [string, ...string[]]);
 const registrationId = z.string().trim().min(5).max(128).regex(/^[A-Za-z0-9_:\-]+$/, 'Registration ID contains unsupported characters');
 const videoId = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9_\-]+$/);
 
@@ -72,7 +73,7 @@ export const targetingSchema = z.object({
   mode: z.enum(['registration_id', 'registration_ids', 'category', 'tag', 'broadcast']),
   registrationId: registrationId.optional(),
   registrationIds: z.array(registrationId).max(5000).optional(),
-  categories: z.array(category).max(3).optional(),
+  categories: z.array(targetingCategory).max(targetingCategory.options.length).optional(),
   confirmBroadcast: z.boolean().optional(),
   acknowledgeTagScope: z.boolean().optional(),
 });

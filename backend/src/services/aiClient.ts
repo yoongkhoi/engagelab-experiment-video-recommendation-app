@@ -19,6 +19,7 @@ export interface AiRecommendation {
   intent: string;
   keywords: string[];
   videos: AiVideo[];
+  suggestions?: string[];
 }
 
 export interface AiClient {

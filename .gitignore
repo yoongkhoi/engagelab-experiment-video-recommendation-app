@@ -3,6 +3,9 @@ dist/
 .env
 *.log
 .DS_Store
+__pycache__/
+*.pyc
+dashboard/tsconfig.app.tsbuildinfo
 
 backend/data/*.sqlite
 backend/data/*.sqlite-journal

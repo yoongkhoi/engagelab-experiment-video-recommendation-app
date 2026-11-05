@@ -1,5 +1,6 @@
 import cors from 'cors';
 import express from 'express';
+import { z } from 'zod';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +26,7 @@ import { HttpError } from './errors.js';
 import { HttpAiClient, type AiClient } from './services/aiClient.js';
 import { PersonalStore } from './repositories/personalStore.js';
 import { attachPersonalRoutes } from './routes/personal.js';
+import { schedulerTick } from './services/libraryFlow.js';
 import {
   campaignSchema,
   eventSchema,
@@ -56,6 +58,7 @@ export function createApp(options: AppOptions) {
   migrate(sqlite);
   seedVideos(sqlite);
   const store = new Store(sqlite);
+  const personal = new PersonalStore(sqlite);
   const client = new EngageLabClient(options.config.engagelab, options.fetchImpl ?? fetch, logger);
   const pixabay = new PixabayCatalog(options.config.pixabayApiKey, options.fetchImpl ?? fetch);
   const videos = new VideoService(store, pixabay);
@@ -121,12 +124,58 @@ export function createApp(options: AppOptions) {
     try {
       const body = otpVerifySchema.parse(req.body);
       const result = auth.verify(body.email, body.code);
+      personal.ensureProfile(result.user.id, !result.created, result.user.updatedAt);
+      const profile = personal.profile(result.user.id);
       res.json({
         token: result.token,
         expiresAt: result.expiresAt,
         created: result.created,
+        onboardingCompleted: profile?.onboardingCompleted ?? !result.created,
         user: { id: result.user.id, email: result.user.normalizedEmail, accountStatus: result.user.accountStatus },
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/auth/password', (req, res, next) => {
+    try {
+      const user = requireUser(req);
+      const body = z.object({ password: z.string().min(8).max(72) }).parse(req.body);
+      auth.setPassword(user.id, body.password);
+      res.json({ saved: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/auth/password/login', (req, res, next) => {
+    try {
+      const body = z.object({ email: z.string().trim().email(), password: z.string().min(1).max(72) }).parse(req.body);
+      const result = auth.loginWithPassword(body.email, body.password);
+      personal.ensureProfile(result.user.id, true, result.user.updatedAt);
+      const profile = personal.profile(result.user.id);
+      res.json({
+        token: result.token,
+        expiresAt: result.expiresAt,
+        created: false,
+        onboardingCompleted: profile?.onboardingCompleted ?? true,
+        user: { id: result.user.id, email: result.user.normalizedEmail, accountStatus: result.user.accountStatus },
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/auth/password/reset', (req, res, next) => {
+    try {
+      const body = z.object({
+        email: z.string().trim().email(),
+        code: z.string().trim().regex(/^\d{6}$/),
+        password: z.string().min(8).max(72),
+      }).parse(req.body);
+      const result = auth.resetPassword(body.email, body.code, body.password);
+      res.json({ token: result.token, expiresAt: result.expiresAt, reset: true });
     } catch (error) {
       next(error);
     }
@@ -419,10 +468,64 @@ export function createApp(options: AppOptions) {
     }
   });
 
+  app.post('/api/experiments/:id/preview', requireAdmin, (req, res, next) => {
+    try {
+      res.json(experiments.preview(req.params.id));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/experiments/:id/simulate', requireAdmin, (req, res, next) => {
+    try {
+      const body = z.object({ syntheticUsers: z.number().int().min(2).max(200).default(60) }).parse(req.body ?? {});
+      const simulation = experiments.simulate(req.params.id, body.syntheticUsers);
+      res.json({
+        simulation,
+        countedAsRealRecipients: false,
+        countedAsDelivered: false,
+        countedAsCtr: false,
+        engageLabCalled: false,
+        sent: false,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/experiments/:id/test-send', requireAdmin, async (req, res, next) => {
+    try {
+      const body = z.object({
+        variant: z.enum(['A', 'B']),
+        registrationId: z.string().trim().min(5).max(128),
+        confirm: z.literal(true),
+      }).parse(req.body);
+      const testSend = await experiments.testSend(req.params.id, body.variant, body.registrationId, body.confirm);
+      res.json({
+        testSend,
+        countedAsExperimentSample: false,
+        deviceDeliveryVerified: false,
+        message: testSend.simulated
+          ? 'One variant was recorded locally for the stored device. EngageLab was not called. This is not device delivery and it is not an A/B result.'
+          : 'One variant was submitted to EngageLab for the stored device. Provider acceptance is not device delivery, and this send is not an A/B sample.',
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post('/api/experiments/:id/start', requireAdmin, async (req, res, next) => {
     try {
-      const experiment = await experiments.start(req.params.id);
-      res.json({ experiment, results: analytics.experimentResult(experiment.id) });
+      const started = await experiments.start(req.params.id);
+      res.json({
+        experiment: started.experiment,
+        simulated: started.simulated,
+        deviceDeliveryVerified: false,
+        results: analytics.experimentResult(started.experiment.id),
+        message: started.simulated
+          ? 'Both variants were recorded locally. EngageLab was not called. This is not device delivery.'
+          : 'Both variants were submitted to EngageLab. Provider acceptance is not device delivery.',
+      });
     } catch (error) {
       next(error);
     }
@@ -524,7 +627,6 @@ export function createApp(options: AppOptions) {
     }
   });
 
-  const personal = new PersonalStore(sqlite);
   const ai = options.ai ?? new HttpAiClient(options.config.aiServiceUrl, options.config.aiTimeoutMs, options.fetchImpl ?? fetch);
   attachPersonalRoutes(app, {
     store, personal, requireUser, optionalUser, requireAdmin, ai, pixabay, videos, campaigns, config: options.config,
@@ -532,7 +634,7 @@ export function createApp(options: AppOptions) {
 
   app.use(notFound);
   app.use(errorHandler);
-  return { app, sqlite, store, client };
+  return { app, sqlite, store, client, notificationTick: () => schedulerTick(store, personal, campaigns) };
 }
 
 function readPage(value: unknown): number {

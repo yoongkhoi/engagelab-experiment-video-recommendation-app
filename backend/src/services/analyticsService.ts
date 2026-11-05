@@ -99,10 +99,20 @@ export class AnalyticsService {
         ? 'Device-reported notification_opened events inside the measurement window. Not an EngageLab delivery count.'
         : 'Device-reported video_play_started events inside the measurement window.',
       variants: {
-        A: { sampleSize: sampleA, successes: successesA, rate: rate(successesA, sampleA) },
-        B: { sampleSize: sampleB, successes: successesB, rate: rate(successesB, sampleB) },
+        A: { sampleSize: sampleA, successes: successesA, rate: rate(successesA, sampleA), realRecipients: true },
+        B: { sampleSize: sampleB, successes: successesB, rate: rate(successesB, sampleB), realRecipients: true },
       },
       statistics: stats,
+      simulation: {
+        runs: this.store.listSimulations(experiment.id),
+        countedAsRealRecipients: false,
+        countedAsDelivered: false,
+        countedAsCtr: false,
+      },
+      testSends: this.store.listTestSends(experiment.id),
+      realAudienceWarning: sampleA < 30 || sampleB < 30
+        ? 'Real sample is below 30 devices per variant. Significance stays unavailable. Simulated users are not included in this sample.'
+        : null,
     };
   }
 }

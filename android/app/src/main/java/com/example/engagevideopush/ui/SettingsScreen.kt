@@ -88,6 +88,35 @@ fun AccountSettingsScreen(onSignIn: () -> Unit) {
                 }
             }
         }, enabled = name.isNotBlank(), modifier = Modifier.padding(top = 12.dp)) { Text("Save") }
+        Button(onClick = {
+            app.scope.launch {
+                error = null
+                try {
+                    withContext(Dispatchers.IO) { app.backend.clearConversations() }
+                    message = "Conversation history cleared."
+                } catch (reason: Exception) {
+                    error = reason.message ?: "Conversation history could not be cleared."
+                }
+            }
+        }, modifier = Modifier.padding(top = 12.dp)) { Text("Clear conversation history") }
+        var confirmDelete by remember { mutableStateOf(false) }
+        Button(onClick = { confirmDelete = true }, modifier = Modifier.padding(top = 8.dp)) { Text("Delete account") }
+        if (confirmDelete) {
+            Button(onClick = {
+                app.scope.launch {
+                    error = null
+                    try {
+                        withContext(Dispatchers.IO) { app.backend.deleteAccount() }
+                        app.session.clear()
+                        app.backend.sessionToken = null
+                        PushState.authenticated.value = false
+                        message = "Account deleted."
+                    } catch (reason: Exception) {
+                        error = reason.message ?: "The account could not be deleted."
+                    }
+                }
+            }, modifier = Modifier.padding(top = 8.dp)) { Text("Confirm delete") }
+        }
         message?.let { Text(it, color = EngageColors.text, modifier = Modifier.padding(top = 12.dp)) }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 12.dp)) }
     }

@@ -8,7 +8,7 @@ import { hashOtp, hashSessionToken, newOtpCode, newSessionToken, normalizeEmail,
 
 const OTP_TTL_MS = 5 * 60 * 1000;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const COOLDOWN_MS = 60 * 1000;
+const COOLDOWN_MS = 30 * 1000;
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_PER_EMAIL = 5;
 const MAX_PER_IP = 10;
@@ -33,7 +33,7 @@ export class AuthService {
     }
     const latest = this.store.latestChallenge(email);
     if (latest && now - Date.parse(latest.createdAt) < COOLDOWN_MS) {
-      throw new HttpError(429, 'OTP_COOLDOWN', 'Please wait a minute before requesting another code.');
+      throw new HttpError(429, 'OTP_COOLDOWN', 'Please wait 30 seconds before requesting another code.');
     }
     const code = newOtpCode();
     const row = {
@@ -131,5 +131,44 @@ export class AuthService {
     };
     this.store.savePreferences(record);
     return record;
+  }
+
+  setPassword(userId: string, password: string): void {
+    this.assertPassword(password);
+    this.store.setPasswordHash(userId, hashOtp(password, this.pepper), nowIso());
+  }
+
+  loginWithPassword(emailInput: string, password: string): { token: string; expiresAt: string; user: AppUser; created: boolean } {
+    const email = normalizeEmail(emailInput);
+    const user = this.store.getUserByEmail(email);
+    const hash = user ? this.store.passwordHash(user.id) : null;
+    if (!user || user.accountStatus !== 'active' || !hash || !otpMatches(password, hash, this.pepper)) {
+      throw new HttpError(401, 'PASSWORD_INVALID', 'The email or password was not accepted.');
+    }
+    const now = nowIso();
+    this.store.touchUserLogin(user.id, now);
+    const token = newSessionToken();
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+    this.store.insertSession({ id: newId(), userId: user.id, tokenHash: hashSessionToken(token), expiresAt, createdAt: now });
+    return { token, expiresAt, user: { ...user, lastLoginAt: now }, created: false };
+  }
+
+  resetPassword(emailInput: string, code: string, password: string): { token: string; expiresAt: string; user: AppUser; created: boolean } {
+    this.assertPassword(password);
+    const verified = this.verify(emailInput, code);
+    this.store.setPasswordHash(verified.user.id, hashOtp(password, this.pepper), nowIso());
+    return verified;
+  }
+
+  deleteAccount(userId: string): void {
+    const now = nowIso();
+    this.store.revokeUserSessions(userId, now);
+    this.store.setAccountStatus(userId, 'deleted', now);
+  }
+
+  private assertPassword(password: string): void {
+    if (password.length < 8 || password.length > 72) {
+      throw new HttpError(400, 'VALIDATION_ERROR', 'Use a password between 8 and 72 characters.');
+    }
   }
 }

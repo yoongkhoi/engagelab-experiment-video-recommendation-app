@@ -7,7 +7,15 @@ dotenv.config();
 
 const config = loadConfig(process.env);
 logger.level = config.logLevel;
-const { app } = createApp({ config });
+const { app, notificationTick } = createApp({ config });
+if (process.env.SCHEDULER_ENABLED === 'true') {
+  setInterval(() => {
+    void notificationTick().catch((error: unknown) => {
+      logger.error({ type: error instanceof Error ? error.name : 'Error' }, 'notification scheduler tick failed');
+    });
+  }, 60_000);
+  logger.info({ confirm: process.env.SCHEDULER_CONFIRM === 'true' }, 'notification scheduler interval started');
+}
 
 const server = app.listen(config.port, '0.0.0.0', () => {
   logger.info(

@@ -1,6 +1,6 @@
 # Architecture
 
-The backend is the only component that can call EngageLab. The phone reports a Registration ID that the SDK already issued. The dashboard is an operator client for the same API.
+EngageVideo is three runtimes plus EngageLab and Pixabay. The Android app plays videos and reports a Registration ID the SDK already issued. The Node API stores accounts, devices, campaigns, and events. The Python service recommends Pixabay videos and does not send pushes. The React dashboard operates the API. Only the Node process holds the EngageLab Master Secret.
 
 ## Request path
 
@@ -8,10 +8,12 @@ The backend is the only component that can call EngageLab. The phone reports a R
 
 Business rules sit in the services:
 
-- audience resolution refuses to turn a missing category into a broadcast
+- audience resolution refuses to turn a missing category or an unknown Registration ID into a broadcast
+- interest targeting matches saved account categories, then uses that account’s stored Registration IDs
 - campaign submission is separate from device delivery
 - tag sync is successful only after `GET /v4/devices/{registration_id}` shows the expected tags
-- experiments assign each Registration ID to one variant with SHA-256
+- experiments assign each real Registration ID to one variant with SHA-256
+- simulated experiment users are stored apart from `experiment_assignments` and are not counted as recipients
 
 `src/integrations/engagelabClient.ts` calls the documented v4 paths with HTTP Basic `base64(AppKey:MasterSecret)`, a timeout, and secret scrubbing.
 
@@ -34,7 +36,7 @@ Scheduled tasks are created with EngageLab, not with `setTimeout`, so they survi
 
 ## Data
 
-SQLite tables: `videos`, `devices`, `campaigns`, `experiments`, `experiment_assignments`, `events`.
+SQLite holds the push records `videos`, `devices`, `campaigns`, `experiments`, `experiment_assignments`, `experiment_simulations`, `experiment_test_sends`, and `events`. Account and recommendation records include `users`, `user_preferences`, `user_profiles`, `favorites`, `watch_history`, `ai_conversations`, `ai_messages`, `recommendation_feedback`, `notification_preferences`, `notification_deliveries`, `library_entries`, `library_campaigns`, and `push_decisions`.
 
 Campaign status is one of `draft`, `scheduled`, `submitted`, `accepted_by_provider`, `simulated`, `failed`, `unknown`. `simulated` is used only when credentials are absent. It is never reported as provider acceptance.
 
@@ -42,7 +44,7 @@ Events from the phone use source `device`. A provider-accepted immediate push re
 
 ## A/B tests
 
-`assignVariant` hashes `experimentId:registrationId` and buckets the first four bytes modulo 100. The same device stays in one variant. The primary key on assignments prevents a second row. Results use a two-proportion z-test only when both variants have at least 30 devices. Smaller samples are marked preliminary and `significant` is null.
+`assignVariant` hashes `experimentId:registrationId` and buckets the first four bytes modulo 100. The same device stays in one variant. The primary key on assignments prevents a second row. Start requires at least two real stored devices and sends nothing when either variant would be empty. Results use a two-proportion z-test only when both variants have at least 30 real devices. Smaller samples are marked preliminary and `significant` is null. A simulation writes `experiment_simulations` only. A single-device test send does not insert an assignment.
 
 ## Android
 

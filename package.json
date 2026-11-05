@@ -1,7 +1,7 @@
 {
   "name": "engagevideopush",
   "private": true,
-  "description": "EngageLab AppPush short-video recommendation demo",
+  "description": "Android short-video recommendations with Pixabay playback and EngageLab AppPush",
   "scripts": {
     "install:backend": "npm --prefix backend install",
     "install:dashboard": "npm --prefix dashboard install",

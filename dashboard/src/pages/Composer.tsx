@@ -2,6 +2,26 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError, api } from '../api';
 import { broadcastReady, tagReady } from '../lib/rules';
 
+const INTERESTS = [
+  { id: 'nature', label: 'Nature' },
+  { id: 'travel', label: 'Travel' },
+  { id: 'food', label: 'Food' },
+  { id: 'technology', label: 'Technology' },
+  { id: 'sports', label: 'Sports' },
+  { id: 'motorsport', label: 'Motorsport & Cars' },
+  { id: 'animals', label: 'Animals' },
+  { id: 'entertainment', label: 'Movies & Entertainment' },
+  { id: 'music', label: 'Music' },
+  { id: 'fashion', label: 'Fashion & Beauty' },
+  { id: 'design', label: 'Design & Art' },
+  { id: 'gaming', label: 'Gaming' },
+  { id: 'science', label: 'Science & Education' },
+  { id: 'lifestyle', label: 'Lifestyle' },
+  { id: 'fitness', label: 'Fitness' },
+  { id: 'photography', label: 'Photography' },
+  { id: 'architecture', label: 'Architecture' },
+];
+
 interface Video { id: string; title: string; category: string; source: string; sourceType: string; thumbnailUrl?: string | null; active: boolean; }
 interface Device { id: string; registrationId: string; categories: string[]; }
 interface Campaign {
@@ -24,7 +44,8 @@ export function ComposerPage() {
   const [message, setMessage] = useState('Tap to watch the recommended clip.');
   const [mode, setMode] = useState('registration_id');
   const [registrationId, setRegistrationId] = useState('');
-  const [categories, setCategories] = useState<string[]>(['tech']);
+  const [interests, setInterests] = useState<string[]>([]);
+  const [tags, setTags] = useState<string[]>(['tech']);
   const [delivery, setDelivery] = useState('immediate');
   const [scheduleTime, setScheduleTime] = useState('2030-01-15 09:30:00');
   const [timeZone, setTimeZone] = useState('Asia/Singapore');
@@ -59,11 +80,16 @@ export function ComposerPage() {
       setError(mode === 'broadcast' ? 'Broadcast requires the confirmation checkbox and the word SEND.' : 'Confirm the EngageLab tag scope before sending.');
       return;
     }
+    const selected = mode === 'category' ? interests : tags;
+    if ((mode === 'category' || mode === 'tag') && !selected.length) {
+      setError(mode === 'category' ? 'Select at least one interest. Nothing was sent.' : 'Select at least one device tag. Nothing was sent.');
+      return;
+    }
     const targeting = {
       mode,
       registrationId: mode === 'registration_id' ? registrationId : undefined,
       registrationIds: mode === 'registration_ids' ? devices.map((device) => device.registrationId) : undefined,
-      categories: mode === 'category' || mode === 'tag' ? categories : undefined,
+      categories: mode === 'category' || mode === 'tag' ? selected : undefined,
       confirmBroadcast: mode === 'broadcast' ? true : undefined,
       acknowledgeTagScope: mode === 'tag' ? true : undefined,
     };
@@ -125,7 +151,7 @@ export function ComposerPage() {
             <select value={mode} onChange={(event) => setMode(event.target.value)}>
               <option value="registration_id">One Registration ID</option>
               <option value="registration_ids">Every stored device</option>
-              <option value="category">Categories, resolved to stored Registration IDs</option>
+              <option value="category">Interests, resolved to stored Registration IDs</option>
               <option value="tag">EngageLab tag</option>
               <option value="broadcast">Broadcast to the Android app</option>
             </select>
@@ -137,12 +163,26 @@ export function ComposerPage() {
               </select>
             </label>
           ) : null}
-          {(mode === 'category' || mode === 'tag') ? (
+          {mode === 'category' ? (
+            <div>
+              <p className="muted">These are the interests saved in the app. The push goes only to stored Registration IDs whose signed-in account saved one of the selected interests.</p>
+              <div className="row">
+                {INTERESTS.map((category) => (
+                  <label key={category.id} className="row">
+                    <input type="checkbox" checked={interests.includes(category.id)} onChange={(event) => {
+                      setInterests(event.target.checked ? [...interests, category.id] : interests.filter((item) => item !== category.id));
+                    }} /> {category.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {mode === 'tag' ? (
             <div className="row">
               {['tech', 'funny', 'lifestyle'].map((category) => (
                 <label key={category} className="row">
-                  <input type="checkbox" checked={categories.includes(category)} onChange={(event) => {
-                    setCategories(event.target.checked ? [...categories, category] : categories.filter((item) => item !== category));
+                  <input type="checkbox" checked={tags.includes(category)} onChange={(event) => {
+                    setTags(event.target.checked ? [...tags, category] : tags.filter((item) => item !== category));
                   }} /> {category}
                 </label>
               ))}

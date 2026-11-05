@@ -17,6 +17,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.AndroidViewModel
@@ -100,9 +103,26 @@ fun SearchScreen(onPlay: (VideoItem, List<VideoItem>) -> Unit, onOpenRail: (Disc
                 FeedUiState.Loading -> StatusBlock("Loading", "Searching videos.")
                 FeedUiState.Empty -> StatusBlock("No results", "Nothing matched ${query.ifBlank { "that search" }}.")
                 is FeedUiState.Failed -> StatusBlock("Search failed", current.message) { viewModel.search() }
-                is FeedUiState.Ready -> Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    current.result.videos.forEach { video ->
-                        VideoPosterCard(video, onPlay = { onPlay(video, current.result.videos) }, compact = false)
+                is FeedUiState.Ready -> {
+                    var filter by remember(current.result.videos) { mutableStateOf("All") }
+                    val shown = current.result.videos.filter { video ->
+                        val duration = video.durationSeconds
+                        when (filter) {
+                            "Short" -> duration != null && duration < 30
+                            "Long" -> duration != null && duration >= 30
+                            else -> true
+                        }
+                    }
+                    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            listOf("All", "Short", "Long").forEach { label ->
+                                Text(label, color = if (filter == label) EngageColors.accent else EngageColors.muted, modifier = Modifier.clickable { filter = label })
+                            }
+                        }
+                        if (shown.isEmpty()) Text("No returned video matches that filter.", color = EngageColors.muted)
+                        shown.forEach { video ->
+                            VideoPosterCard(video, onPlay = { onPlay(video, shown) }, compact = false)
+                        }
                     }
                 }
             }

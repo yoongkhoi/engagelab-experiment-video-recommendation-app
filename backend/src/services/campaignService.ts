@@ -272,7 +272,7 @@ export class CampaignService {
   }
 
   describeTarget(targeting: TargetingInput) {
-    const audience = resolveAudience(targeting, this.store.listDevices());
+    const audience = resolveAudience(targeting, this.store.listDevices(), this.savedInterests());
     const missing = audience.broadcast
       ? []
       : audience.registrationIds.filter((id) => !id.trim() || !this.store.getDeviceByRegistration(id));
@@ -307,7 +307,16 @@ export class CampaignService {
       categories: campaign.targetCategories,
       confirmBroadcast: campaign.confirmBroadcast,
       acknowledgeTagScope: campaign.acknowledgeTagScope,
-    }, this.store.listDevices());
+    }, this.store.listDevices(), this.savedInterests());
+  }
+
+  private savedInterests(): Map<string, string[]> {
+    const interests = new Map<string, string[]>();
+    for (const user of this.store.listUsers()) {
+      const categories = this.store.getPreferences(user.id)?.categories ?? [];
+      if (categories.length) interests.set(user.id, [...categories]);
+    }
+    return interests;
   }
 
   private applyConfirmation(

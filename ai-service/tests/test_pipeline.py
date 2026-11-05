@@ -42,7 +42,9 @@ def test_recommendation_uses_only_retrieved_https_videos():
         return [video(), video("9", "Broken", url="http://insecure.example/a.mp4")]
     result = recommend(lambda _prompt: analysis(), search, {"message": "Find relaxing nature videos.", "preferences": ["nature"]})
     assert [item["id"] for item in result["videos"]] == ["125"]
-    assert "125" in result["reply"] or "Forest" in result["reply"]
+    assert result["videos"][0]["title"] == "Forest"
+    assert result["reply"].startswith("I found these on Pixabay for ")
+    assert "\n-" not in result["reply"]
 
 
 def test_empty_pixabay_result_is_honest():

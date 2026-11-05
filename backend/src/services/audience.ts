@@ -1,12 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { Category, Device } from '../domain.js';
+import type { Device } from '../domain.js';
 import { HttpError } from '../errors.js';
 
 export interface TargetingInput {
   mode: 'registration_id' | 'registration_ids' | 'category' | 'tag' | 'broadcast';
   registrationId?: string;
   registrationIds?: string[];
-  categories?: Category[];
+  categories?: string[];
   confirmBroadcast?: boolean;
   acknowledgeTagScope?: boolean;
 }
@@ -17,7 +17,7 @@ export interface ResolvedAudience {
   broadcast: boolean;
 }
 
-export function resolveAudience(targeting: TargetingInput, devices: Device[]): ResolvedAudience {
+export function resolveAudience(targeting: TargetingInput, devices: Device[], savedInterests: ReadonlyMap<string, readonly string[]> = new Map()): ResolvedAudience {
   if (targeting.mode === 'broadcast') {
     if (!targeting.confirmBroadcast) {
       throw new HttpError(
@@ -50,14 +50,14 @@ export function resolveAudience(targeting: TargetingInput, devices: Device[]): R
     throw new HttpError(400, 'TARGET_EMPTY', 'Select at least one category. The push was not sent to all users.');
   }
   const matched = devices
-    .filter((device) => device.platform === 'android' && device.categories.some((category) => categories.includes(category)))
+    .filter((device) => device.platform === 'android' && deviceMatchesCategory(device, categories, targeting.mode, savedInterests))
     .map((device) => device.registrationId);
   const registrationIds = unique(matched);
   if (!registrationIds.length) {
     throw new HttpError(
       422,
       'TARGET_EMPTY',
-      'No stored Android devices match the selected categories. The push was not widened to all users.',
+      'No stored Android device has one of these categories, and no signed-in account with a stored device saved this interest. The push was not widened to all users.',
     );
   }
   if (targeting.mode === 'tag' && !targeting.acknowledgeTagScope) {
@@ -78,6 +78,12 @@ export function assignVariant(experimentId: string, registrationId: string, allo
 
 export function newId(): string {
   return randomUUID();
+}
+
+function deviceMatchesCategory(device: Device, categories: string[], mode: TargetingInput['mode'], savedInterests: ReadonlyMap<string, readonly string[]>): boolean {
+  if (device.categories.some((category) => categories.includes(category))) return true;
+  if (mode !== 'category' || !device.userId) return false;
+  return (savedInterests.get(device.userId) ?? []).some((category) => categories.includes(category));
 }
 
 function unique(values: string[]): string[] {

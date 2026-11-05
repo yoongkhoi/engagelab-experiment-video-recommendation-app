@@ -148,11 +148,16 @@ fun EngageApp() {
     }
     LaunchedEffect(signedIn) {
         if (!signedIn) return@LaunchedEffect
-        app.scope.launch {
+        val profile = withContext(Dispatchers.IO) {
             val favorites = runCatching { app.backend.favorites() }.getOrNull()
             val history = runCatching { app.backend.history() }.getOrNull()
             if (favorites != null) app.library.replaceFavorites(favorites)
             if (history != null) app.library.replaceWatched(history)
+            runCatching { app.backend.accountDetails() }.getOrNull()
+        }
+        val completed = profile?.optJSONObject("profile")?.optBoolean("onboardingCompleted", true) ?: true
+        if (!completed && nav.currentDestination?.route != "onboarding") {
+            nav.navigate("onboarding") { launchSingleTop = true }
         }
     }
     fun openVideo(video: VideoItem, queue: List<VideoItem>) {
@@ -208,10 +213,10 @@ fun EngageApp() {
                     AuthScreen(
                         title = if (entry.arguments?.getString("title") == "create") "Create account" else "Sign in",
                         onBack = { nav.popBackStack() },
-                        onSignedIn = {
+                        onSignedIn = { completed ->
                             com.example.engagevideopush.push.PushState.authenticated.value = true
                             app.scope.launch { PendingLibrary.apply(app) }
-                            nav.popBackStack()
+                            if (completed) nav.popBackStack() else nav.navigate("onboarding") { launchSingleTop = true }
                         },
                     )
                 }
@@ -245,6 +250,11 @@ fun EngageApp() {
                     )
                 }
                 composable("account") { AccountSettingsScreen(onSignIn = { openAuth("sign-in") }) }
+                composable("onboarding") {
+                    OnboardingScreen(onDone = {
+                        if (!nav.popBackStack("home", false)) openTab("home")
+                    })
+                }
                 composable("preferences") { if (signedIn) PreferencesScreen() else AuthScreen(onBack = { nav.popBackStack() }, onSignedIn = { com.example.engagevideopush.push.PushState.authenticated.value = true; nav.popBackStack() }) }
                 composable("notifications") { NotificationSettingsScreen(onDevices = { nav.navigate("device") }, onSignIn = { openAuth("sign-in") }) }
                 composable("playback") { PlaybackSettingsScreen() }

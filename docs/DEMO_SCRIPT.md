@@ -1,10 +1,10 @@
 # Demo script
 
-Plan on eight minutes. Say which steps used the live EngageLab API and which used the phone.
+Plan on eight minutes. Say which steps used the live EngageLab API and which used the phone. The current catalogue is Pixabay. The dashboard video-library page is hidden. Do not claim a notification arrived unless the phone shows it.
 
 ## 1. Launch the Android app (30 seconds)
 
-Open EngageVideoPush. Show the feed: Technology, Funny, and Lifestyle, each with a description and Play. If the backend is down, the offline banner is explicit and the bundled catalogue still plays.
+Open EngageVideo. A signed-in home screen shows interest sections when recommendations exist. A guest sees the popular feed. If the backend is down, the offline state is explicit. Do not present a missing catalogue as a successful recommendation.
 
 ## 2. Register the device (45 seconds)
 
@@ -18,7 +18,7 @@ Open the dashboard and sign in with `ADMIN_API_KEY`. On Devices, reveal the same
 
 Compose a push:
 
-- Video `1001`
+- A Pixabay video that is already stored and active
 - A title and message you can recognize on the phone
 - Targeting: that Registration ID
 - Delivery: send now

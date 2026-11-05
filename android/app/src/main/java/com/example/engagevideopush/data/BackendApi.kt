@@ -80,7 +80,8 @@ class BackendApi(initialBaseUrl: String) {
 
     fun verifyCode(email: String, code: String): AuthSession {
         val body = post("/api/auth/otp/verify", JSONObject().put("email", email).put("code", code), null)
-        return AuthSession(body.getString("token"), body.getString("expiresAt"), body.getJSONObject("user").getString("email"))
+        val completed = if (body.has("onboardingCompleted")) body.getBoolean("onboardingCompleted") else true
+        return AuthSession(body.getString("token"), body.getString("expiresAt"), body.getJSONObject("user").getString("email"), completed)
     }
 
     fun currentUser() {
@@ -153,6 +154,39 @@ class BackendApi(initialBaseUrl: String) {
         val guest = if (sessionToken == null) usableGuestKey(guestKey) else null
         if (guest != null) payload.put("guestKey", guest)
         return parse(request("POST", "/api/ai/chat", payload, sessionToken?.let { "Bearer $it" }, chatClient))
+    }
+
+    fun personalizedSections(): List<Pair<String, List<VideoItem>>> {
+        val token = sessionToken ?: return emptyList()
+        val body = parse(request("GET", "/api/me/recommendations", null, "Bearer $token"))
+        val sections = body.optJSONArray("sections") ?: return emptyList()
+        return buildList {
+            for (index in 0 until sections.length()) {
+                val section = sections.optJSONObject(index) ?: continue
+                val videos = VideoJson.parseList(JSONObject().put("videos", section.optJSONArray("videos")))
+                if (videos.isNotEmpty()) add(section.optString("title").ifBlank { "For you" } to videos)
+            }
+        }
+    }
+
+    fun accountDetails(): JSONObject {
+        val token = sessionToken ?: throw BackendException("Sign in again.", code = 401, network = false)
+        return parse(request("GET", "/api/me/profile", null, "Bearer $token"))
+    }
+
+    fun saveOnboarding(payload: JSONObject) {
+        val token = sessionToken ?: throw BackendException("Sign in again.", code = 401, network = false)
+        parse(request("PUT", "/api/me/onboarding", payload, "Bearer $token"))
+    }
+
+    fun clearConversations() {
+        val token = sessionToken ?: throw BackendException("Sign in again.", code = 401, network = false)
+        parse(request("DELETE", "/api/ai/conversations", null, "Bearer $token"))
+    }
+
+    fun deleteAccount() {
+        val token = sessionToken ?: throw BackendException("Sign in again.", code = 401, network = false)
+        parse(request("POST", "/api/me/delete", JSONObject().put("confirm", "DELETE"), "Bearer $token"))
     }
 
     fun recommendationFeedback(videoId: String, sentiment: String, conversationId: String?) {

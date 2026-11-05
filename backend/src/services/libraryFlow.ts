@@ -5,11 +5,13 @@ import { HttpError } from '../errors.js';
 import type { PersonalStore } from '../repositories/personalStore.js';
 import type { Store } from '../repositories/store.js';
 import type { CampaignService } from './campaignService.js';
+import { groundedTopics, schedulerGate, topicMatches } from './personalization.js';
 import { inQuietHours, zonedMinutes } from './quietHours.js';
 import { newId } from './audience.js';
 
-const DAILY_CAP = 3;
 const preferences = new Set<string>(VIDEO_PREFERENCE_CATEGORIES);
+
+export { schedulerGate };
 
 export interface MatchRow {
   userId: string;
@@ -24,7 +26,7 @@ export function maskRegistration(value: string): string {
   return `${value.slice(0, 4)}…${value.slice(-4)}`;
 }
 
-export function previewMatches(store: Store, personal: PersonalStore, config: AppConfig, videoId: string, at = new Date()): { timezone: string; matches: MatchRow[] } {
+export function previewMatches(store: Store, personal: PersonalStore, config: AppConfig, videoId: string, at = new Date()): { timezone: string; matches: MatchRow[]; topics: string[]; automaticCampaigns: boolean } {
   const video = store.getVideo(videoId);
   const entry = personal.library(videoId);
   if (!video || !entry || entry.libraryState !== 'published') {
@@ -33,28 +35,40 @@ export function previewMatches(store: Store, personal: PersonalStore, config: Ap
   const timezone = config.engagelab.siteTimeZone || 'UTC';
   const nowMinutes = zonedMinutes(timezone, at);
   const since = new Date(at.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  const policy = personal.notificationPolicy();
   const category = video.category.toLowerCase();
+  const topics = groundedTopics(category, entry.keywords, entry.tags);
   const matches: MatchRow[] = [];
   for (const user of store.listUsers()) {
+    if (user.accountStatus !== 'active') continue;
     const interests = store.getPreferences(user.id)?.categories ?? [];
-    if (!interests.some((item) => item === category || entry.keywords.includes(item))) continue;
+    if (!topicMatches(interests, category, [...entry.keywords, ...entry.tags, ...topics])) continue;
     const prefs = personal.notificationPreference(user.id);
     const devices = store.devicesForUser(user.id).filter((device) => device.notificationEnabled && device.registrationId.trim());
     if (!prefs.pushEnabled || !prefs.newInInterests) {
       matches.push({ userId: user.id, email: user.normalizedEmail, registrationId: '', action: 'skip', reason: 'opted_out' });
       continue;
     }
-    if (prefs.categories.length && !prefs.categories.includes(category)) {
+    if (prefs.categories.length && !prefs.categories.some((item) => item === category || topics.includes(item))) {
       matches.push({ userId: user.id, email: user.normalizedEmail, registrationId: '', action: 'skip', reason: 'category_filter' });
+      continue;
+    }
+    if (personal.listHistory(user.id).some((item) => item.videoId === videoId)) {
+      matches.push({ userId: user.id, email: user.normalizedEmail, registrationId: '', action: 'skip', reason: 'watched' });
+      continue;
+    }
+    if (personal.feedbackForUser(user.id).some((item) => item.video_id === videoId && item.sentiment === 'negative')) {
+      matches.push({ userId: user.id, email: user.normalizedEmail, registrationId: '', action: 'skip', reason: 'dismissed' });
       continue;
     }
     if (!devices.length) {
       matches.push({ userId: user.id, email: user.normalizedEmail, registrationId: '', action: 'skip', reason: 'no_registered_device' });
       continue;
     }
+    let claimed = personal.userHasVideo(user.id, videoId);
     for (const device of devices) {
       const dedupe = `${user.id}:${videoId}:${device.registrationId}`;
-      if (personal.deliveryExists(dedupe)) {
+      if (claimed || personal.deliveryExists(dedupe)) {
         matches.push({ userId: user.id, email: user.normalizedEmail, registrationId: device.registrationId, action: 'skip', reason: 'duplicate' });
         continue;
       }
@@ -64,16 +78,42 @@ export function previewMatches(store: Store, personal: PersonalStore, config: Ap
       }
       if (prefs.frequency !== 'instant') {
         matches.push({ userId: user.id, email: user.normalizedEmail, registrationId: device.registrationId, action: 'queue', reason: prefs.frequency });
+        claimed = true;
         continue;
       }
-      if (personal.countDeliveriesSince(user.id, since) >= DAILY_CAP) {
+      const latest = personal.latestDeliveryAt(user.id);
+      if (latest && policy.minIntervalHours > 0 && at.getTime() - Date.parse(latest) < policy.minIntervalHours * 60 * 60 * 1000) {
+        matches.push({ userId: user.id, email: user.normalizedEmail, registrationId: device.registrationId, action: 'skip', reason: 'interval' });
+        continue;
+      }
+      if (personal.countDeliveriesSince(user.id, since) >= policy.maxPerDay) {
         matches.push({ userId: user.id, email: user.normalizedEmail, registrationId: device.registrationId, action: 'skip', reason: 'frequency_cap' });
         continue;
       }
       matches.push({ userId: user.id, email: user.normalizedEmail, registrationId: device.registrationId, action: 'send', reason: 'instant' });
+      claimed = true;
     }
   }
-  return { timezone, matches };
+  return { timezone, matches, topics, automaticCampaigns: policy.automaticCampaigns };
+}
+
+export function recordDecisions(personal: PersonalStore, videoId: string, libraryCampaignId: string | null, stage: string, topics: string[], matches: MatchRow[], engageLabCalled: boolean): void {
+  const at = nowIso();
+  const rows = matches.length ? matches : [{ userId: '', email: '', registrationId: '', action: 'skip' as const, reason: 'no_match' }];
+  for (const match of rows) {
+    personal.insertPushDecision({
+      id: newId(),
+      videoId,
+      libraryCampaignId,
+      stage,
+      topics,
+      userId: match.userId || null,
+      action: match.action,
+      reason: match.reason,
+      engageLabCalled,
+      at,
+    });
+  }
 }
 
 export function assertPreferenceCategory(value: string): void {
@@ -89,12 +129,26 @@ export async function activateLibraryCampaign(
   config: AppConfig,
   libraryCampaignId: string,
   confirm: boolean,
-): Promise<{ status: string; campaignId: string | null; simulated: boolean; sent: number; queued: number; skipped: number }> {
+): Promise<{ status: string; campaignId: string | null; simulated: boolean; sent: number; queued: number; skipped: number; duplicatePrevented: boolean; engageLabCalled: boolean }> {
   if (!confirm) throw new HttpError(400, 'CONFIRMATION_REQUIRED', 'Set confirm=true to activate. Nothing was sent.');
-  const row = personal.libraryCampaigns().find((item) => (item as { id: string }).id === libraryCampaignId) as { id: string; video_id: string; status: string } | undefined;
+  const row = personal.libraryCampaigns().find((item) => (item as { id: string }).id === libraryCampaignId) as { id: string; video_id: string; status: string; campaign_id: string | null } | undefined;
   if (!row) throw new HttpError(404, 'CAMPAIGN_NOT_FOUND', 'Library campaign was not found.');
   if (row.status === 'paused') throw new HttpError(409, 'CAMPAIGN_PAUSED', 'A paused campaign is not sent.');
-  const { matches } = previewMatches(store, personal, config, row.video_id);
+  const preview = previewMatches(store, personal, config, row.video_id);
+  const { matches } = preview;
+  if (row.status === 'active' || row.status === 'completed') {
+    recordDecisions(personal, row.video_id, row.id, 'activate_repeat', preview.topics, matches, false);
+    return {
+      status: row.status,
+      campaignId: row.campaign_id,
+      simulated: false,
+      sent: 0,
+      queued: 0,
+      skipped: matches.length,
+      duplicatePrevented: true,
+      engageLabCalled: false,
+    };
+  }
   const now = nowIso();
   const sendIds: string[] = [];
   let queued = 0;
@@ -144,7 +198,8 @@ export async function activateLibraryCampaign(
   }
   const status = sendIds.length || queued ? 'active' : 'completed';
   personal.updateLibraryCampaign(row.id, status, campaignId, now);
-  return { status, campaignId, simulated, sent: sendIds.length, queued, skipped };
+  recordDecisions(personal, row.video_id, row.id, 'activate', preview.topics, matches, Boolean(sendIds.length) && !simulated);
+  return { status, campaignId, simulated, sent: sendIds.length, queued, skipped, duplicatePrevented: false, engageLabCalled: Boolean(sendIds.length) && !simulated };
 }
 
 export async function runDueDigests(
@@ -181,4 +236,17 @@ export async function runDueDigests(
     }
   }
   return { processed, simulated };
+}
+
+export async function schedulerTick(
+  store: Store,
+  personal: PersonalStore,
+  campaigns: CampaignService,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ ran: boolean; processed: number; sent: boolean }> {
+  const gate = schedulerGate(env);
+  if (!gate.enabled) return { ran: false, processed: 0, sent: false };
+  if (!gate.willSend) return { ran: true, processed: 0, sent: false };
+  const result = await runDueDigests(store, personal, campaigns, true);
+  return { ran: true, processed: result.processed, sent: true };
 }

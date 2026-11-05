@@ -1,6 +1,6 @@
 # EngageLab setup
 
-Use the AppPush console for the application you created. The values below come from the current EngageLab docs, not from the computer's region.
+Connect EngageVideo to one AppPush application and one data center. Use the AppPush console for the application you created. The values below come from the EngageLab docs, not from the computer's region.
 
 ## 1. Select the application
 

@@ -228,6 +228,15 @@ export class PersonalStore {
     )?.count ?? 0;
   }
 
+  insertPushDecision(row: { id: string; videoId: string; libraryCampaignId: string | null; stage: string; topics: string[]; userId: string | null; action: string; reason: string; engageLabCalled: boolean; at: string }): void {
+    this.db.run(
+      `INSERT INTO push_decisions
+        (id, video_id, library_campaign_id, stage, topics, user_id, action, reason, engage_lab_called, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      row.id, row.videoId, row.libraryCampaignId, row.stage, JSON.stringify(row.topics), row.userId, row.action, row.reason, row.engageLabCalled ? 1 : 0, row.at,
+    );
+  }
+
   insertDelivery(row: { id: string; userId: string; videoId: string; registrationId: string; campaignId: string | null; status: string; reason: string | null; dedupeKey: string; deliverAfter: string | null; at: string }): void {
     this.db.run(
       `INSERT INTO notification_deliveries
@@ -246,6 +255,144 @@ export class PersonalStore {
 
   markDelivery(id: string, status: string, campaignId: string | null): void {
     this.db.run('UPDATE notification_deliveries SET status = ?, campaign_id = ? WHERE id = ?', status, campaignId, id);
+  }
+
+  deliveriesForUser(userId: string) {
+    return this.db.all<{ videoId: string; status: string; reason: string | null; createdAt: string }>(
+      `SELECT video_id AS videoId, status, reason, created_at AS createdAt
+       FROM notification_deliveries WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`,
+      userId,
+    );
+  }
+
+  userHasVideo(userId: string, videoId: string): boolean {
+    return Boolean(this.db.get(
+      `SELECT id FROM notification_deliveries WHERE user_id = ? AND video_id = ? AND status IN ('simulated', 'accepted_by_provider', 'queued', 'sent_to_provider', 'provider_accepted')`,
+      userId, videoId,
+    ));
+  }
+
+  latestDeliveryAt(userId: string): string | null {
+    return this.db.get<{ created_at: string }>(
+      `SELECT created_at FROM notification_deliveries WHERE user_id = ? AND status IN ('simulated', 'accepted_by_provider', 'queued', 'sent_to_provider', 'provider_accepted') ORDER BY created_at DESC LIMIT 1`,
+      userId,
+    )?.created_at ?? null;
+  }
+
+  notificationPolicy(): { maxPerDay: number; minIntervalHours: number; recentExclusionHours: number; automaticCampaigns: boolean } {
+    const row = this.db.get<{ max_per_day: number; min_interval_hours: number; recent_exclusion_hours: number; automatic_campaigns: number }>(
+      'SELECT max_per_day, min_interval_hours, recent_exclusion_hours, automatic_campaigns FROM notification_policy WHERE id = ?',
+      'default',
+    );
+    return {
+      maxPerDay: row?.max_per_day ?? 3,
+      minIntervalHours: row?.min_interval_hours ?? 4,
+      recentExclusionHours: row?.recent_exclusion_hours ?? 24,
+      automaticCampaigns: row?.automatic_campaigns === 1,
+    };
+  }
+
+  saveNotificationPolicy(policy: { maxPerDay: number; minIntervalHours: number; recentExclusionHours: number; automaticCampaigns: boolean }, at: string): void {
+    this.db.run(
+      `INSERT INTO notification_policy (id, max_per_day, min_interval_hours, recent_exclusion_hours, automatic_campaigns, updated_at)
+       VALUES ('default', ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET max_per_day = excluded.max_per_day, min_interval_hours = excluded.min_interval_hours,
+         recent_exclusion_hours = excluded.recent_exclusion_hours, automatic_campaigns = excluded.automatic_campaigns, updated_at = excluded.updated_at`,
+      policy.maxPerDay, policy.minIntervalHours, policy.recentExclusionHours, policy.automaticCampaigns ? 1 : 0, at,
+    );
+  }
+
+  ensureProfile(userId: string, completed: boolean, at: string): void {
+    this.db.run(
+      `INSERT OR IGNORE INTO user_profiles (user_id, gender, onboarding_completed, subcategories, updated_at) VALUES (?, NULL, ?, '[]', ?)`,
+      userId, completed ? 1 : 0, at,
+    );
+  }
+
+  profile(userId: string) {
+    const row = this.db.get<{
+      gender: string | null; onboarding_completed: number; video_length: string | null; content_style: string | null;
+      energy: string | null; discovery: string | null; recommendation_cadence: string | null; subcategories: string; updated_at: string;
+    }>('SELECT * FROM user_profiles WHERE user_id = ?', userId);
+    if (!row) return null;
+    return {
+      gender: row.gender,
+      onboardingCompleted: row.onboarding_completed !== 0,
+      videoLength: row.video_length,
+      contentStyle: row.content_style,
+      energy: row.energy,
+      discovery: row.discovery,
+      recommendationCadence: row.recommendation_cadence,
+      subcategories: JSON.parse(row.subcategories) as string[],
+      updatedAt: row.updated_at,
+    };
+  }
+
+  saveProfile(userId: string, profile: {
+    gender: string | null; onboardingCompleted: boolean; videoLength: string | null; contentStyle: string | null;
+    energy: string | null; discovery: string | null; recommendationCadence: string | null; subcategories: string[];
+  }, at: string): void {
+    this.db.run(
+      `INSERT INTO user_profiles
+        (user_id, gender, onboarding_completed, video_length, content_style, energy, discovery, recommendation_cadence, subcategories, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET gender = excluded.gender, onboarding_completed = excluded.onboarding_completed,
+         video_length = excluded.video_length, content_style = excluded.content_style, energy = excluded.energy,
+         discovery = excluded.discovery, recommendation_cadence = excluded.recommendation_cadence,
+         subcategories = excluded.subcategories, updated_at = excluded.updated_at`,
+      userId, profile.gender, profile.onboardingCompleted ? 1 : 0, profile.videoLength, profile.contentStyle,
+      profile.energy, profile.discovery, profile.recommendationCadence, JSON.stringify(profile.subcategories), at,
+    );
+  }
+
+  insertTrace(row: { id: string; conversationId: string | null; intent: string; queries: string[]; resultCount: number; outcome: string; at: string }): void {
+    this.db.run(
+      `INSERT INTO agent_traces (id, conversation_id, intent, queries, result_count, outcome, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      row.id, row.conversationId, row.intent, JSON.stringify(row.queries), row.resultCount, row.outcome, row.at,
+    );
+  }
+
+  messageCount(conversationId: string): number {
+    return this.db.get<{ count: number }>('SELECT COUNT(*) AS count FROM ai_messages WHERE conversation_id = ?', conversationId)?.count ?? 0;
+  }
+
+  updateSummary(conversationId: string, summary: string): void {
+    this.db.run('UPDATE ai_conversations SET summary = ? WHERE id = ?', summary.slice(0, 280), conversationId);
+  }
+
+  summary(conversationId: string): string | null {
+    return this.db.get<{ summary: string | null }>('SELECT summary FROM ai_conversations WHERE id = ?', conversationId)?.summary ?? null;
+  }
+
+  deleteConversation(id: string, owner: { userId?: string; guestKey?: string }): boolean {
+    const existing = this.conversation(id);
+    if (!existing) return false;
+    if (owner.userId && existing.user_id !== owner.userId) return false;
+    if (owner.guestKey && existing.guest_key !== owner.guestKey) return false;
+    this.db.run('DELETE FROM ai_messages WHERE conversation_id = ?', id);
+    this.db.run('DELETE FROM ai_conversations WHERE id = ?', id);
+    return true;
+  }
+
+  clearConversations(owner: { userId?: string; guestKey?: string }): number {
+    const rows = this.listConversations(owner) as Array<{ id: string }>;
+    for (const row of rows) this.deleteConversation(row.id, owner);
+    return rows.length;
+  }
+
+  deliveryCounts() {
+    const rows = this.db.all<{ status: string; count: number }>('SELECT status, COUNT(*) AS count FROM notification_deliveries GROUP BY status');
+    return rows;
+  }
+
+  preferenceCounts() {
+    const rows = this.db.all<{ categories: string }>('SELECT categories FROM user_preferences');
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      const categories = JSON.parse(row.categories) as string[];
+      for (const category of categories) counts.set(category, (counts.get(category) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([category, count]) => ({ category, count })).sort((left, right) => right.count - left.count);
   }
 
   aiStats() {

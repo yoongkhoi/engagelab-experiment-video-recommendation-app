@@ -1,5 +1,7 @@
 # Android setup
 
+Build and install the EngageVideo Android app. The application id is `com.example.engagevideopush`. The Master Secret does not belong in this project.
+
 ## Android Studio
 
 - Android Studio with Android Gradle Plugin 8.7.3 support

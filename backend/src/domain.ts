@@ -60,7 +60,7 @@ export interface Campaign {
   title: string;
   message: string;
   targetingMode: 'registration_id' | 'registration_ids' | 'category' | 'tag' | 'broadcast';
-  targetCategories: Category[];
+  targetCategories: string[];
   requestedRegistrationIds: string[];
   resolvedRegistrationIds: string[];
   confirmBroadcast: boolean;
@@ -91,7 +91,7 @@ export interface Experiment {
   variantA: { title: string; message: string };
   variantB: { title: string; message: string };
   targetingMode: Campaign['targetingMode'];
-  targetCategories: Category[];
+  targetCategories: string[];
   requestedRegistrationIds: string[];
   confirmBroadcast: boolean;
   acknowledgeTagScope: boolean;
@@ -115,7 +115,52 @@ export interface Assignment {
   assignedAt: string;
 }
 
-export const VIDEO_PREFERENCE_CATEGORIES = ['travel', 'nature', 'food', 'technology', 'sports', 'animals', 'entertainment'] as const;
+export interface ExperimentSimulation {
+  id: string;
+  experimentId: string;
+  syntheticUsers: number;
+  variantA: number;
+  variantB: number;
+  note: string;
+  createdAt: string;
+}
+
+export interface ExperimentTestSend {
+  id: string;
+  experimentId: string;
+  variant: 'A' | 'B';
+  registrationHint: string;
+  campaignId: string | null;
+  simulated: boolean;
+  providerStatus: string | null;
+  deviceDeliveryVerified: false;
+  createdAt: string;
+}
+
+export const VIDEO_PREFERENCE_CATEGORIES = [
+  'travel', 'nature', 'food', 'technology', 'sports', 'motorsport', 'animals', 'entertainment',
+  'music', 'fashion', 'design', 'gaming', 'science', 'lifestyle', 'fitness', 'photography', 'architecture',
+] as const;
+
+export const INTEREST_CATALOG = [
+  { id: 'nature', label: 'Nature', suggestions: ['Waterfalls', 'Mountains', 'Wildlife', 'Ocean'] },
+  { id: 'travel', label: 'Travel', suggestions: ['Cities', 'Road trips', 'Beaches'] },
+  { id: 'food', label: 'Food', suggestions: ['Street Food', 'Cooking', 'Desserts', 'Restaurants'] },
+  { id: 'technology', label: 'Technology', suggestions: ['Gadgets', 'Software', 'Engineering'] },
+  { id: 'sports', label: 'Sports', suggestions: ['Football', 'Basketball', 'Outdoor sports'] },
+  { id: 'motorsport', label: 'Motorsport & Cars', suggestions: ['Formula 1', 'Motorsport', 'Supercars', 'Automotive Technology'] },
+  { id: 'animals', label: 'Animals', suggestions: ['Pets', 'Wildlife', 'Ocean life'] },
+  { id: 'entertainment', label: 'Movies & Entertainment', suggestions: ['Film', 'Stories', 'Performance'] },
+  { id: 'music', label: 'Music', suggestions: ['Performance', 'Instruments', 'Concerts'] },
+  { id: 'fashion', label: 'Fashion & Beauty', suggestions: ['Fashion', 'Skincare', 'Makeup', 'Design'] },
+  { id: 'design', label: 'Design & Art', suggestions: ['Illustration', 'Interiors', 'Graphic design'] },
+  { id: 'gaming', label: 'Gaming', suggestions: ['Gameplay', 'Esports'] },
+  { id: 'science', label: 'Science & Education', suggestions: ['Experiments', 'Space', 'Learning'] },
+  { id: 'lifestyle', label: 'Lifestyle', suggestions: ['Daily life', 'Home'] },
+  { id: 'fitness', label: 'Fitness', suggestions: ['Training', 'Wellness'] },
+  { id: 'photography', label: 'Photography', suggestions: ['Cameras', 'Landscapes'] },
+  { id: 'architecture', label: 'Architecture', suggestions: ['Buildings', 'Cities'] },
+] as const;
 export type VideoPreference = (typeof VIDEO_PREFERENCE_CATEGORIES)[number];
 
 export interface AppUser {
@@ -125,7 +170,7 @@ export interface AppUser {
   createdAt: string;
   updatedAt: string;
   lastLoginAt: string | null;
-  accountStatus: 'active';
+  accountStatus: 'active' | 'deleted';
 }
 
 export interface UserPreferenceRecord {

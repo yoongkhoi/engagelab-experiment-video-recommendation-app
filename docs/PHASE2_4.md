@@ -1,6 +1,6 @@
 # EngageVideo AI, phases 2–4
 
-The dashboard stays the existing React app. It was not rewritten as Vue.
+This note describes the account, assistant, and library data added after the first push demo. The current product overview is `README.md`. The dashboard remains the existing React app. It was not rewritten as Vue. The video-library screen is hidden; the API is unchanged.
 
 ## Architecture
 
@@ -9,11 +9,9 @@ The dashboard stays the existing React app. It was not rewritten as Vue.
 - `ai-service` is a separate FastAPI process. It runs one LangChain LCEL chain and calls the backend Pixabay search. It does not store accounts and does not send pushes.
 - LLM credentials stay in `backend/.env`. The AI process loads that file without rewriting it. Android never receives the key.
 
-## LCEL chain
+## Recommendation pipeline
 
-`intent_analyzer | query_rewriter | context_loader | pixabay_retriever | result_validator | recommendation_ranker | response_generator`
-
-The model is called once. The rewriter only cleans the keywords from that response. The retriever uses `GET /api/videos?query=`. The validator keeps only those results with an https URL. The ranker is a scored sort using the request, saved interests, duration, and negative feedback. It is not a trained model. If Pixabay returns nothing, the reply says so.
+Image requests, calculations, and other non-video messages are answered without Pixabay or a model call. A video request uses one model JSON call, then at most three distinct Pixabay searches. The visible reply names the search and does not list titles. Playable cards come from the returned videos. The validator keeps only https results. If Pixabay returns nothing, the reply says so. Skill files in `ai-service/skills/` supply the instructions for that path. The ranker is a scored sort, not a trained model.
 
 `OPENAI_API_BASE` is the chat-completions base. `OPENAI_API_URL` is used only when the base is empty. If they differ, the base wins.
 

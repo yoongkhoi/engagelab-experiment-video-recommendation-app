@@ -16,7 +16,7 @@ data class VideoItem(
     val sourceUrl: String? = null,
 )
 
-data class AuthSession(val token: String, val expiresAt: String, val email: String)
+data class AuthSession(val token: String, val expiresAt: String, val email: String, val onboardingCompleted: Boolean = true)
 
 data class AccountProfile(val email: String, val displayName: String?)
 

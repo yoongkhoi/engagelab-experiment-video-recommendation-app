@@ -315,6 +315,73 @@ export function migrate(db: Sqlite): void {
     CREATE INDEX IF NOT EXISTS recommendation_feedback_user_idx ON recommendation_feedback(user_id, video_id);
     CREATE INDEX IF NOT EXISTS notification_deliveries_user_idx ON notification_deliveries(user_id, created_at);
     CREATE INDEX IF NOT EXISTS library_campaigns_video_idx ON library_campaigns(video_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      user_id TEXT PRIMARY KEY,
+      gender TEXT,
+      onboarding_completed INTEGER NOT NULL DEFAULT 0,
+      video_length TEXT,
+      content_style TEXT,
+      energy TEXT,
+      discovery TEXT,
+      recommendation_cadence TEXT,
+      subcategories TEXT NOT NULL DEFAULT '[]',
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_traces (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT,
+      intent TEXT NOT NULL,
+      queries TEXT NOT NULL,
+      result_count INTEGER NOT NULL,
+      outcome TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_policy (
+      id TEXT PRIMARY KEY,
+      max_per_day INTEGER NOT NULL,
+      min_interval_hours INTEGER NOT NULL,
+      recent_exclusion_hours INTEGER NOT NULL,
+      automatic_campaigns INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS experiment_simulations (
+      id TEXT PRIMARY KEY,
+      experiment_id TEXT NOT NULL,
+      synthetic_users INTEGER NOT NULL,
+      variant_a INTEGER NOT NULL,
+      variant_b INTEGER NOT NULL,
+      note TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS experiment_test_sends (
+      id TEXT PRIMARY KEY,
+      experiment_id TEXT NOT NULL,
+      variant TEXT NOT NULL,
+      registration_hint TEXT NOT NULL,
+      campaign_id TEXT,
+      simulated INTEGER NOT NULL,
+      provider_status TEXT,
+      device_delivery_verified INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS push_decisions (
+      id TEXT PRIMARY KEY,
+      video_id TEXT NOT NULL,
+      library_campaign_id TEXT,
+      stage TEXT NOT NULL,
+      topics TEXT NOT NULL,
+      user_id TEXT,
+      action TEXT,
+      reason TEXT,
+      engage_lab_called INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
   const columns = db.all<{ name: string }>('PRAGMA table_info(devices)').map((column) => column.name);
   if (!columns.includes('device_type')) db.exec('ALTER TABLE devices ADD COLUMN device_type TEXT');
@@ -325,6 +392,14 @@ export function migrate(db: Sqlite): void {
   if (!eventColumns.includes('user_id')) db.exec('ALTER TABLE events ADD COLUMN user_id TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS devices_installation_idx ON devices(installation_id)');
   db.exec('CREATE INDEX IF NOT EXISTS auth_challenges_email_idx ON auth_challenges(normalized_email, created_at)');
+  const userColumns = db.all<{ name: string }>('PRAGMA table_info(users)').map((column) => column.name);
+  if (!userColumns.includes('password_hash')) db.exec('ALTER TABLE users ADD COLUMN password_hash TEXT');
+  const conversationColumns = db.all<{ name: string }>('PRAGMA table_info(ai_conversations)').map((column) => column.name);
+  if (!conversationColumns.includes('summary')) db.exec('ALTER TABLE ai_conversations ADD COLUMN summary TEXT');
+  db.exec(`INSERT OR IGNORE INTO user_profiles (user_id, onboarding_completed, subcategories, updated_at)
+    SELECT id, 1, '[]', updated_at FROM users`);
+  db.exec(`INSERT OR IGNORE INTO notification_policy (id, max_per_day, min_interval_hours, recent_exclusion_hours, automatic_campaigns, updated_at)
+    VALUES ('default', 3, 4, 24, 0, '1970-01-01T00:00:00.000Z')`);
 }
 
 export interface SeedVideo {

@@ -22,7 +22,7 @@ The push sets `notification.android.extras` to `video_id`, `campaign_id`, and `c
 
 ## How segmentation works
 
-Categories are stored on the device row. Category sends load those rows and put the Registration IDs in `to.registration_id`, up to 1000 per request. If none match, the API returns 422 and does not send `to: "all"`. Tag mode is separate: the server calls `POST /v4/devices/{registration_id}` with `tags.add` and `tags.remove`, then reads the device back. Only a confirmed tag set is followed by `to.tag`. The operator must acknowledge that a tag audience can be larger than the local table.
+Device rows still store the original tags `tech`, `funny`, and `lifestyle`. Compose interest targeting also matches categories saved on the signed-in account, then sends to that account’s stored Registration IDs. If none match, the API returns 422 and does not send `to: "all"`. Tag mode is separate: the server calls `POST /v4/devices/{registration_id}` with `tags.add` and `tags.remove`, then reads the device back. Only a confirmed tag set is followed by `to.tag`. The operator must acknowledge that a tag audience can be larger than the local table.
 
 ## How schedules work
 

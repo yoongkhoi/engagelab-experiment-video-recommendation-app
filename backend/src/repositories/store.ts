@@ -297,6 +297,45 @@ export class Store {
     );
   }
 
+  insertSimulation(row: import('../domain.js').ExperimentSimulation): void {
+    this.db.run(
+      `INSERT INTO experiment_simulations (id, experiment_id, synthetic_users, variant_a, variant_b, note, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      row.id, row.experimentId, row.syntheticUsers, row.variantA, row.variantB, row.note, row.createdAt,
+    );
+  }
+
+  listSimulations(experimentId: string): import('../domain.js').ExperimentSimulation[] {
+    return this.db.all(
+      `SELECT id, experiment_id AS experimentId, synthetic_users AS syntheticUsers, variant_a AS variantA,
+              variant_b AS variantB, note, created_at AS createdAt
+       FROM experiment_simulations WHERE experiment_id = ? ORDER BY created_at DESC`,
+      experimentId,
+    );
+  }
+
+  insertTestSend(row: import('../domain.js').ExperimentTestSend): void {
+    this.db.run(
+      `INSERT INTO experiment_test_sends
+        (id, experiment_id, variant, registration_hint, campaign_id, simulated, provider_status, device_delivery_verified, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      row.id, row.experimentId, row.variant, row.registrationHint, row.campaignId, row.simulated ? 1 : 0, row.providerStatus, row.createdAt,
+    );
+  }
+
+  listTestSends(experimentId: string): import('../domain.js').ExperimentTestSend[] {
+    const rows = this.db.all<{
+      id: string; experimentId: string; variant: 'A' | 'B'; registrationHint: string; campaignId: string | null;
+      simulated: number; providerStatus: string | null; createdAt: string;
+    }>(
+      `SELECT id, experiment_id AS experimentId, variant, registration_hint AS registrationHint, campaign_id AS campaignId,
+              simulated, provider_status AS providerStatus, created_at AS createdAt
+       FROM experiment_test_sends WHERE experiment_id = ? ORDER BY created_at DESC`,
+      experimentId,
+    );
+    return rows.map((row) => ({ ...row, simulated: row.simulated === 1, deviceDeliveryVerified: false as const }));
+  }
+
   insertEvent(event: AppEvent): void {
     this.db.run(
       `INSERT INTO events
@@ -450,6 +489,22 @@ export class Store {
 
   revokeSession(tokenHash: string, at: string): void {
     this.db.run('UPDATE sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL', at, tokenHash);
+  }
+
+  revokeUserSessions(userId: string, at: string): void {
+    this.db.run('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL', at, userId);
+  }
+
+  setPasswordHash(id: string, passwordHash: string, at: string): void {
+    this.db.run('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?', passwordHash, at, id);
+  }
+
+  passwordHash(id: string): string | null {
+    return this.db.get<{ password_hash: string | null }>('SELECT password_hash FROM users WHERE id = ?', id)?.password_hash ?? null;
+  }
+
+  setAccountStatus(id: string, status: 'active' | 'deleted', at: string): void {
+    this.db.run('UPDATE users SET account_status = ?, updated_at = ? WHERE id = ?', status, at, id);
   }
 
   getPreferences(userId: string): import('../domain.js').UserPreferenceRecord | undefined {

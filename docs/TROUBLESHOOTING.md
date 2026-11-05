@@ -1,5 +1,7 @@
 # Troubleshooting
 
+Checks for EngageVideo registration, playback, and push. An empty Registration ID or a missing notification is reported as that failure. It is not replaced with a sample.
+
 ## SDK initialization failed
 
 Logcat, process `:remote`, will show EngageLab debug lines when `configDebugMode` is on. If Device says `not_configured`, `engagelab.properties` has no 24-character AppKey and `init` was not called.

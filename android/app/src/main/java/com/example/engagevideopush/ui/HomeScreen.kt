@@ -52,12 +52,19 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     val rails: StateFlow<Map<String, FeedUiState>> = _rails
     private val _watched = MutableStateFlow<List<VideoItem>>(emptyList())
     val watched: StateFlow<List<VideoItem>> = _watched
+    private val _sections = MutableStateFlow<List<Pair<String, List<VideoItem>>>>(emptyList())
+    val sections: StateFlow<List<Pair<String, List<VideoItem>>>> = _sections
 
     fun load(signedIn: Boolean) {
         viewModelScope.launch {
             _popular.value = FeedUiState.Loading
             val popularResult = withContext(Dispatchers.IO) { app.repository.loadFeed(FeedCategories.all.first(), 1) }
             _popular.value = readyOrFailed(popularResult, "Popular videos could not be loaded.")
+            _sections.value = if (signedIn) {
+                runCatching { withContext(Dispatchers.IO) { app.backend.personalizedSections() } }.getOrDefault(emptyList())
+            } else {
+                emptyList()
+            }
             val preference = if (signedIn) {
                 runCatching { withContext(Dispatchers.IO) { app.backend.videoPreferences() } }.getOrNull().orEmpty()
             } else {
@@ -115,6 +122,7 @@ fun HomeScreen(
     val made by viewModel.madeForYou.collectAsStateWithLifecycle()
     val rails by viewModel.rails.collectAsStateWithLifecycle()
     val watched by viewModel.watched.collectAsStateWithLifecycle()
+    val sections by viewModel.sections.collectAsStateWithLifecycle()
     val context = LocalContext.current
     LaunchedEffect(signedIn) { viewModel.load(signedIn) }
 
@@ -146,8 +154,15 @@ fun HomeScreen(
                 }
             }
         }
-        SectionTitle("Made For You", if (signedIn) made.first else "Popular videos for guests")
-        VideoStrip(made.second, onPlay)
+        if (sections.isEmpty()) {
+            SectionTitle("Made For You", if (signedIn) made.first else "Popular videos for guests")
+            VideoStrip(made.second, onPlay)
+        } else {
+            sections.forEach { (title, videos) ->
+                SectionTitle(title)
+                VideoStrip(FeedUiState.Ready(FeedResult(videos, false, null)), onPlay)
+            }
+        }
         DiscoverRails.playlists.forEach { rail ->
             SectionTitle(rail.title, action = "See all") { onOpenRail(rail) }
             VideoStrip(rails[rail.query] ?: FeedUiState.Loading, onPlay)

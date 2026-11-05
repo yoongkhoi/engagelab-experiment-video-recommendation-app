@@ -1,5 +1,7 @@
 # API reference
 
+HTTP contract for the EngageVideo backend. Behavior and limits are summarized in `README.md`. This file does not repeat credentials.
+
 Base URL: `http://localhost:3000`
 
 Machine-readable spec: `GET /api/openapi.yaml`
@@ -154,9 +156,31 @@ Past times for zone type 1 return `400 SCHEDULE_IN_THE_PAST`.
 
 Detail includes `results` with sample sizes, the measurement window, and statistics. `preliminary: true` means significance was not calculated.
 
+### POST /api/experiments/:id/preview
+
+Returns the real-device split and both notification texts. `engageLabCalled` is false. Fewer than two real devices is reported in `warning` and does not send.
+
+### POST /api/experiments/:id/simulate
+
+```json
+{ "syntheticUsers": 60 }
+```
+
+Stores a labelled synthetic split. The response sets `countedAsRealRecipients`, `countedAsDelivered`, and `countedAsCtr` to false. EngageLab is not called. Real result sample sizes stay unchanged.
+
+### POST /api/experiments/:id/test-send
+
+```json
+{ "variant": "A", "registrationId": "stored-id", "confirm": true }
+```
+
+Sends one variant to one stored device. `confirm` must be true. The send is not inserted into `experiment_assignments`, so it does not change the A/B sample. `deviceDeliveryVerified` is false.
+
 ### POST /api/experiments/:id/start
 
-Assigns devices, stores the assignment, and sends two registration-id campaigns. Broadcast experiments are rejected. If every device lands in one bucket, nothing is sent and the response is `422`.
+Assigns real devices, stores the assignment, and sends two registration-id campaigns. Broadcast experiments are rejected. Fewer than two real devices returns `422 INSUFFICIENT_AUDIENCE` and sends nothing. If every device lands in one bucket, nothing is sent and the response is `422 EXPERIMENT_VARIANT_EMPTY`. A second activation of the same experiment returns `409` and does not send again.
+
+Dashboard steps, dry run, and the one-device limits are in [ADMIN_QA.md](ADMIN_QA.md).
 
 ## Events and analytics
 

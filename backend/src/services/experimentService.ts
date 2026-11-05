@@ -1,4 +1,4 @@
-import type { Experiment } from '../domain.js';
+import type { Experiment, ExperimentSimulation, ExperimentTestSend } from '../domain.js';
 import { nowIso } from '../domain.js';
 import { HttpError } from '../errors.js';
 import type { Store } from '../repositories/store.js';
@@ -35,6 +35,9 @@ export class ExperimentService {
   }
 
   create(input: ExperimentInput): Experiment {
+    if (input.variantA.title === input.variantB.title && input.variantA.message === input.variantB.message) {
+      throw new HttpError(400, 'EXPERIMENT_VARIANTS_IDENTICAL', 'Variant A and variant B need different title or message text. The experiment was not created.');
+    }
     const video = this.videos.get(input.videoId);
     if (!video.active) throw new HttpError(409, 'VIDEO_INACTIVE', `Video ${input.videoId} is inactive.`);
     const now = nowIso();
@@ -65,22 +68,108 @@ export class ExperimentService {
     return experiment;
   }
 
-  async start(id: string): Promise<Experiment> {
+  preview(id: string) {
+    const experiment = this.get(id);
+    let registrationIds: string[] = [];
+    try {
+      registrationIds = this.audienceFor(experiment).registrationIds;
+    } catch (error) {
+      if (!(error instanceof HttpError) || (error.code !== 'TARGET_EMPTY' && error.code !== 'INSUFFICIENT_AUDIENCE')) throw error;
+    }
+    const audience = { registrationIds };
+    const groups: Record<'A' | 'B', string[]> = { A: [], B: [] };
+    for (const registrationId of audience.registrationIds) {
+      groups[assignVariant(experiment.id, registrationId, experiment.allocationA)].push(hint(registrationId));
+    }
+    const realDevices = audience.registrationIds.length;
+    return {
+      engageLabCalled: false,
+      sent: false,
+      realDevices,
+      sufficientForStart: realDevices >= 2 && groups.A.length > 0 && groups.B.length > 0,
+      sufficientForSignificance: groups.A.length >= 30 && groups.B.length >= 30,
+      warning: realDevices < 2
+        ? `This database has ${realDevices} real device${realDevices === 1 ? '' : 's'}. One real device cannot fill both variants, so Start will not send. Use the labelled simulation, or send one variant to the stored device as a separate test.`
+        : groups.A.length < 30 || groups.B.length < 30
+          ? 'Both variants need at least 30 real devices before a result can leave preliminary. A smaller audience does not identify a winner.'
+          : 'The real audience is large enough for the project significance rule. Provider acceptance is still not device delivery.',
+      variants: {
+        A: { title: experiment.variantA.title, message: experiment.variantA.message, recipients: groups.A.length },
+        B: { title: experiment.variantB.title, message: experiment.variantB.message, recipients: groups.B.length },
+      },
+      allocationA: experiment.allocationA,
+      durationHours: experiment.durationHours,
+    };
+  }
+
+  simulate(id: string, syntheticUsers = 60): ExperimentSimulation {
+    const experiment = this.get(id);
+    const count = Math.min(200, Math.max(2, Math.floor(syntheticUsers)));
+    const groups = { A: 0, B: 0 };
+    for (let index = 0; index < count; index += 1) {
+      groups[assignVariant(experiment.id, `synthetic-${index}`, experiment.allocationA)] += 1;
+    }
+    if (!groups.A || !groups.B) {
+      throw new HttpError(422, 'SIMULATION_VARIANT_EMPTY', 'The synthetic split put every simulated user in one variant. Increase the synthetic audience. No push was sent.');
+    }
+    const row: ExperimentSimulation = {
+      id: newId(),
+      experimentId: experiment.id,
+      syntheticUsers: count,
+      variantA: groups.A,
+      variantB: groups.B,
+      note: 'Synthetic users only. They are not real recipients, not delivered notifications, and not a click-through rate.',
+      createdAt: nowIso(),
+    };
+    this.store.insertSimulation(row);
+    return row;
+  }
+
+  async testSend(id: string, variant: 'A' | 'B', registrationId: string, confirm: boolean): Promise<ExperimentTestSend> {
+    if (!confirm) throw new HttpError(400, 'CONFIRMATION_REQUIRED', 'Set confirm=true to send one variant to one stored device. Nothing was sent.');
+    const experiment = this.get(id);
+    const device = this.store.getDeviceByRegistration(registrationId);
+    if (!device) throw new HttpError(404, 'DEVICE_NOT_FOUND', 'That Registration ID is not stored. Nothing was sent.');
+    const copy = variant === 'A' ? experiment.variantA : experiment.variantB;
+    const draft = await this.campaigns.createDraft({
+      name: `${experiment.name} single-device ${variant}`.slice(0, 120),
+      videoId: experiment.videoId,
+      title: copy.title,
+      message: copy.message,
+      targeting: { mode: 'registration_ids', registrationIds: [device.registrationId] },
+    });
+    const sent = await this.campaigns.send(draft.id);
+    const row: ExperimentTestSend = {
+      id: newId(),
+      experimentId: experiment.id,
+      variant,
+      registrationHint: hint(device.registrationId),
+      campaignId: sent.id,
+      simulated: sent.simulated,
+      providerStatus: sent.status,
+      deviceDeliveryVerified: false,
+      createdAt: nowIso(),
+    };
+    this.store.insertTestSend(row);
+    return row;
+  }
+
+  async start(id: string): Promise<{ experiment: Experiment; simulated: boolean }> {
     const experiment = this.store.getExperiment(id);
     if (!experiment) throw new HttpError(404, 'EXPERIMENT_NOT_FOUND', `Experiment ${id} was not found.`);
     if (experiment.status === 'running' || experiment.status === 'completed') {
-      throw new HttpError(409, 'EXPERIMENT_ALREADY_STARTED', `Experiment ${id} is ${experiment.status}.`);
+      throw new HttpError(409, 'EXPERIMENT_ALREADY_STARTED', `Experiment ${id} is ${experiment.status}. No additional push was sent.`);
     }
-    const audience = resolveAudience({
-      mode: experiment.targetingMode,
-      registrationId: experiment.requestedRegistrationIds[0],
-      registrationIds: experiment.requestedRegistrationIds,
-      categories: experiment.targetCategories,
-      confirmBroadcast: experiment.confirmBroadcast,
-      acknowledgeTagScope: experiment.acknowledgeTagScope,
-    }, this.store.listDevices());
-    if (audience.broadcast) {
-      throw new HttpError(400, 'EXPERIMENT_BROADCAST_UNSUPPORTED', 'A/B experiments require an explicit device list or category so each device stays in one variant.');
+    if (this.store.listAssignments(experiment.id).length) {
+      throw new HttpError(409, 'EXPERIMENT_ALREADY_STARTED', 'Devices are already assigned for this experiment. No additional push was sent.');
+    }
+    const audience = this.audienceFor(experiment);
+    if (audience.registrationIds.length < 2) {
+      throw new HttpError(
+        422,
+        'INSUFFICIENT_AUDIENCE',
+        `Start needs at least two real stored devices so both variants receive one. This audience has ${audience.registrationIds.length}. No push was sent. A labelled simulation is separate and is not a real delivery.`,
+      );
     }
 
     const startedAt = nowIso();
@@ -116,7 +205,7 @@ export class ExperimentService {
         updatedAt: nowIso(),
       };
       this.store.updateExperiment(running);
-      return running;
+      return { experiment: running, simulated: campaignA.simulated && campaignB.simulated };
     } catch (error) {
       const failed: Experiment = {
         ...experiment,
@@ -129,6 +218,30 @@ export class ExperimentService {
       this.store.updateExperiment(failed);
       throw error;
     }
+  }
+
+  private audienceFor(experiment: Experiment) {
+    const audience = resolveAudience({
+      mode: experiment.targetingMode,
+      registrationId: experiment.requestedRegistrationIds[0],
+      registrationIds: experiment.requestedRegistrationIds,
+      categories: experiment.targetCategories,
+      confirmBroadcast: experiment.confirmBroadcast,
+      acknowledgeTagScope: experiment.acknowledgeTagScope,
+    }, this.store.listDevices(), this.savedInterests());
+    if (audience.broadcast) {
+      throw new HttpError(400, 'EXPERIMENT_BROADCAST_UNSUPPORTED', 'A/B experiments require an explicit device list or category so each device stays in one variant.');
+    }
+    return audience;
+  }
+
+  private savedInterests(): Map<string, string[]> {
+    const interests = new Map<string, string[]>();
+    for (const user of this.store.listUsers()) {
+      const categories = this.store.getPreferences(user.id)?.categories ?? [];
+      if (categories.length) interests.set(user.id, [...categories]);
+    }
+    return interests;
   }
 
   private async sendVariant(experiment: Experiment, variant: 'A' | 'B', registrationIds: string[]) {
@@ -151,4 +264,9 @@ export class ExperimentService {
     }
     return experiment;
   }
+}
+
+function hint(value: string): string {
+  if (value.length <= 8) return '••••';
+  return `${value.slice(0, 4)}…${value.slice(-4)}`;
 }

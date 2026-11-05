@@ -11,7 +11,8 @@ import type { AiClient } from '../services/aiClient.js';
 import { trustedVideos } from '../services/aiClient.js';
 import { newId } from '../services/audience.js';
 import type { CampaignService } from '../services/campaignService.js';
-import { activateLibraryCampaign, assertPreferenceCategory, maskRegistration, previewMatches, runDueDigests } from '../services/libraryFlow.js';
+import { activateLibraryCampaign, assertPreferenceCategory, maskRegistration, previewMatches, recordDecisions, runDueDigests } from '../services/libraryFlow.js';
+import { groundedTopics, guestFeed, recommendationSections } from '../services/personalization.js';
 import type { PixabayCatalog } from '../integrations/pixabay.js';
 import type { VideoService } from '../services/videoService.js';
 import { z } from 'zod';
@@ -167,6 +168,19 @@ export function attachPersonalRoutes(app: Express, deps: {
         metadata: JSON.stringify({ videos, intent: recommendation.intent, keywords: recommendation.keywords }), at,
       });
       personal.touchConversation(conversation.id, at);
+      const summary = personal.summary(conversation.id);
+      if (personal.messageCount(conversation.id) >= 8 && !summary) {
+        personal.updateSummary(conversation.id, body.message);
+      }
+      personal.insertTrace({
+        id: newId(),
+        conversationId: conversation.id,
+        intent: recommendation.intent,
+        queries: recommendation.keywords,
+        resultCount: videos.length,
+        outcome: videos.length ? 'results' : recommendation.intent,
+        at,
+      });
       res.json({
         conversationId: conversation.id,
         ...(guestKey ? { guestKey } : {}),
@@ -175,6 +189,7 @@ export function attachPersonalRoutes(app: Express, deps: {
         videos,
         intent: recommendation.intent,
         keywords: recommendation.keywords,
+        suggestions: recommendation.suggestions ?? [],
       });
     } catch (error) { next(error); }
   });
@@ -190,7 +205,21 @@ export function attachPersonalRoutes(app: Express, deps: {
 
   app.get('/api/library', deps.requireAdmin, (_req, res) => {
     const entries = personal.listLibrary().map((entry) => ({ ...entry, video: store.getVideo(entry.videoId) ?? null }));
-    res.json({ entries });
+    const campaigns = personal.libraryCampaigns().map((row) => {
+      const item = row as { id: string; video_id: string; campaign_id: string | null; status: string; note: string | null };
+      return { id: item.id, videoId: item.video_id, campaignId: item.campaign_id, status: item.status, note: item.note };
+    });
+    res.json({
+      entries,
+      campaigns,
+      states: {
+        draft: 'Saved or waiting. No push has been sent.',
+        published: 'The library video is published. Publishing itself does not send a push.',
+        active: 'Activation submitted a targeted campaign. This is not proof a device displayed it.',
+        paused: 'Further sends for this library campaign are blocked.',
+        completed: 'Activation found no further immediate recipient.',
+      },
+    });
   });
 
   app.post('/api/library', deps.requireAdmin, async (req, res, next) => {
@@ -202,14 +231,16 @@ export function attachPersonalRoutes(app: Express, deps: {
         tags: z.array(z.string().trim().min(1).max(40)).max(8).default([]),
       }).parse(req.body);
       assertPreferenceCategory(body.category);
+      if (personal.library(body.videoId)) throw new HttpError(409, 'LIBRARY_DUPLICATE', 'That Pixabay video is already in the library.');
       const remote = await deps.pixabay.video(body.videoId);
       const stored = deps.videos.remember({ ...remote, category: body.category });
       const now = nowIso();
       const existing = personal.library(stored.id);
+      const topics = groundedTopics(body.category, body.keywords, body.tags);
       personal.upsertLibrary({
         videoId: stored.id,
         libraryState: existing?.libraryState === 'published' ? 'published' : 'draft',
-        keywords: body.keywords,
+        keywords: [...new Set([...body.keywords, ...topics])],
         tags: body.tags,
         width: remote.width,
         height: remote.height,
@@ -228,8 +259,18 @@ export function attachPersonalRoutes(app: Express, deps: {
       const now = nowIso();
       personal.upsertLibrary({ ...entry, libraryState: 'published', publishedAt: now, updatedAt: now });
       const campaignId = newId();
+      const existing = personal.libraryCampaigns(entry.videoId).find((row) => {
+        const status = (row as { status: string }).status;
+        return status === 'draft' || status === 'active';
+      }) as { id: string } | undefined;
+      if (existing && entry.libraryState === 'published') {
+        res.json({ entry: personal.library(entry.videoId), libraryCampaignId: existing.id, sent: false, created: false });
+        return;
+      }
       personal.insertLibraryCampaign({ id: campaignId, videoId: entry.videoId, status: 'draft', note: 'Created when the video was published. No push has been sent.', at: now });
-      res.json({ entry: personal.library(entry.videoId), libraryCampaignId: campaignId, sent: false });
+      const video = store.getVideo(entry.videoId);
+      recordDecisions(personal, entry.videoId, campaignId, 'published', groundedTopics(video?.category ?? '', entry.keywords, entry.tags), [], false);
+      res.json({ entry: personal.library(entry.videoId), libraryCampaignId: campaignId, sent: false, created: true, engageLabCalled: false });
     } catch (error) { next(error); }
   });
 
@@ -243,6 +284,9 @@ export function attachPersonalRoutes(app: Express, deps: {
         quietHours: 'Quiet hours use the EngageLab site timezone, or UTC when that value is empty. Overnight ranges are supported.',
         matchedUsers: users.size,
         registeredDevices: devices.length,
+        matched: users.size,
+        eligible: result.matches.filter((match) => match.action === 'send').length,
+        excluded: result.matches.filter((match) => match.action === 'skip').length,
         willSend: result.matches.filter((match) => match.action === 'send').length,
         willQueue: result.matches.filter((match) => match.action === 'queue').length,
         skipped: result.matches.filter((match) => match.action === 'skip').length,
@@ -294,6 +338,228 @@ export function attachPersonalRoutes(app: Express, deps: {
     });
     res.json({ users });
   });
+
+  app.get('/api/me/profile', (req, res, next) => {
+    try {
+      const user = deps.requireUser(req);
+      res.json({ profile: personal.profile(user.id), displayName: user.displayName, email: user.normalizedEmail });
+    } catch (error) { next(error); }
+  });
+
+  app.put('/api/me/onboarding', (req, res, next) => {
+    try {
+      const user = deps.requireUser(req);
+      const body = z.object({
+        displayName: z.string().trim().max(40).optional(),
+        gender: z.enum(['male', 'female', 'unspecified']).nullable().optional(),
+        categories: z.array(categories).max(categories.options.length).default([]),
+        subcategories: z.array(z.string().trim().min(1).max(40)).max(24).default([]),
+        videoLength: z.enum(['short', 'long']).nullable().optional(),
+        contentStyle: z.enum(['educational', 'entertainment']).nullable().optional(),
+        energy: z.enum(['relaxing', 'exciting']).nullable().optional(),
+        discovery: z.enum(['trending', 'niche']).nullable().optional(),
+        recommendationCadence: z.enum(['instant', 'daily', 'weekly']).nullable().optional(),
+        completed: z.boolean().default(true),
+      }).parse(req.body);
+      if (body.displayName) deps.store.updateDisplayName(user.id, body.displayName, nowIso());
+      if (body.categories.length) deps.store.savePreferences({
+        userId: user.id,
+        categories: body.categories,
+        createdAt: deps.store.getPreferences(user.id)?.createdAt ?? nowIso(),
+        updatedAt: nowIso(),
+      });
+      personal.saveProfile(user.id, {
+        gender: body.gender ?? null,
+        onboardingCompleted: body.completed,
+        videoLength: body.videoLength ?? null,
+        contentStyle: body.contentStyle ?? null,
+        energy: body.energy ?? null,
+        discovery: body.discovery ?? null,
+        recommendationCadence: body.recommendationCadence ?? null,
+        subcategories: body.subcategories,
+      }, nowIso());
+      res.json({ profile: personal.profile(user.id), onboardingCompleted: body.completed });
+    } catch (error) { next(error); }
+  });
+
+  app.post('/api/me/delete', (req, res, next) => {
+    try {
+      const user = deps.requireUser(req);
+      const body = z.object({ confirm: z.literal('DELETE') }).parse(req.body);
+      if (body.confirm !== 'DELETE') throw new HttpError(400, 'CONFIRMATION_REQUIRED', 'Type DELETE to remove the account.');
+      personal.clearConversations({ userId: user.id });
+      deps.store.revokeUserSessions(user.id, nowIso());
+      deps.store.setAccountStatus(user.id, 'deleted', nowIso());
+      res.json({ deleted: true });
+    } catch (error) { next(error); }
+  });
+
+  app.delete('/api/ai/conversations/:id', (req, res, next) => {
+    try {
+      const user = deps.optionalUser(req);
+      const guestKey = typeof req.query.guestKey === 'string' ? req.query.guestKey : '';
+      const removed = personal.deleteConversation(req.params.id, user ? { userId: user.id } : { guestKey });
+      if (!removed) throw new HttpError(404, 'CONVERSATION_NOT_FOUND', 'That conversation was not found.');
+      res.json({ deleted: true });
+    } catch (error) { next(error); }
+  });
+
+  app.delete('/api/ai/conversations', (req, res, next) => {
+    try {
+      const user = deps.optionalUser(req);
+      const guestKey = typeof req.query.guestKey === 'string' ? req.query.guestKey : '';
+      if (!user && !guestKey) throw new HttpError(401, 'UNAUTHORIZED', 'Sign in or continue a guest session.');
+      res.json({ deleted: personal.clearConversations(user ? { userId: user.id } : { guestKey }) });
+    } catch (error) { next(error); }
+  });
+
+  app.get('/api/recommendations', async (_req, res, next) => {
+    try {
+      const page = await deps.pixabay.popular(1);
+      const feed = guestFeed(page.videos.map((video) => ({
+        id: video.id, title: video.title, category: video.category, tags: [], videoUrl: video.video_url,
+      })));
+      res.json({ personalized: false, sections: [{ title: 'Popular', videos: page.videos.filter((video) => feed.videos.some((item) => item.id === video.id)) }] });
+    } catch (error) { next(error); }
+  });
+
+  app.get('/api/me/recommendations', async (req, res, next) => {
+    try {
+      const user = deps.requireUser(req);
+      const interests = deps.store.getPreferences(user.id)?.categories ?? [];
+      const watched = personal.listHistory(user.id).map((item) => item.videoId);
+      const favorites = personal.listFavorites(user.id).map((item) => item.videoId);
+      const feedback = personal.feedbackForUser(user.id);
+      const profile = personal.profile(user.id);
+      const collected = [];
+      const queries = interests.length ? interests.slice(0, 4) : ['nature'];
+      for (const interest of queries) {
+        const page = await deps.pixabay.search(searchFor(interest), 1);
+        for (const video of page.videos) {
+          if (!video.video_url.startsWith('https://') || !video.title.trim()) continue;
+          collected.push({
+            id: video.id,
+            title: video.title,
+            category: interest,
+            tags: [video.category, interest],
+            videoUrl: video.video_url,
+            publishedAt: null,
+            source: video,
+          });
+        }
+      }
+      const unique = [...new Map(collected.map((video) => [video.id, video])).values()];
+      const sections = recommendationSections(unique, {
+        interests,
+        watched,
+        favorites,
+        positive: feedback.filter((item) => item.sentiment === 'positive').map((item) => item.video_id),
+        negative: feedback.filter((item) => item.sentiment === 'negative').map((item) => item.video_id),
+        dismissedCategories: [],
+      }).map((section) => ({
+        title: section.title,
+        videos: section.videos.map((video) => unique.find((item) => item.id === video.id)?.source).filter(Boolean),
+      })).filter((section) => section.videos.length);
+      const category = typeof req.query.category === 'string' ? req.query.category : '';
+      res.json({
+        personalized: interests.length > 0,
+        genderUsed: false,
+        viewing: profile,
+        sections: category ? sections.filter((section) => section.title.toLowerCase().includes(category.toLowerCase())) : sections,
+      });
+    } catch (error) { next(error); }
+  });
+
+  app.post('/api/library/:id/unpublish', deps.requireAdmin, (req, res, next) => {
+    try {
+      const entry = requireLibrary(personal, req.params.id);
+      personal.upsertLibrary({ ...entry, libraryState: 'draft', updatedAt: nowIso() });
+      res.json({ entry: personal.library(entry.videoId), sent: false });
+    } catch (error) { next(error); }
+  });
+
+  app.post('/api/library/:id/dry-run', deps.requireAdmin, (req, res, next) => {
+    try {
+      const result = previewMatches(store, personal, deps.config, req.params.id);
+      const video = store.getVideo(req.params.id);
+      recordDecisions(personal, req.params.id, null, 'dry_run', result.topics, result.matches, false);
+      res.json({
+        sent: false,
+        engageLabCalled: false,
+        matched: new Set(result.matches.map((match) => match.userId)).size,
+        eligible: result.matches.filter((match) => match.action === 'send').length,
+        excluded: result.matches.filter((match) => match.action === 'skip').length,
+        queued: result.matches.filter((match) => match.action === 'queue').length,
+        decisionsRecorded: true,
+        automaticCampaigns: result.automaticCampaigns,
+        topics: result.topics,
+        timezone: result.timezone,
+        matches: result.matches.map((match) => ({ ...match, registrationId: match.registrationId ? maskRegistration(match.registrationId) : '' })),
+        payload: {
+          campaignId: null,
+          videoId: req.params.id,
+          deepLink: `engagevideopush://video/${req.params.id}`,
+          type: 'video',
+          title: video?.title ?? 'Video',
+          body: 'A video matching saved interests is ready.',
+        },
+      });
+    } catch (error) { next(error); }
+  });
+
+  app.get('/api/admin/notification-policy', deps.requireAdmin, (_req, res) => {
+    res.json({ policy: personal.notificationPolicy(), automaticDefault: false });
+  });
+
+  app.put('/api/admin/notification-policy', deps.requireAdmin, (req, res, next) => {
+    try {
+      const body = z.object({
+        maxPerDay: z.number().int().min(0).max(10),
+        minIntervalHours: z.number().int().min(0).max(48),
+        recentExclusionHours: z.number().int().min(0).max(168),
+        automaticCampaigns: z.boolean(),
+      }).parse(req.body);
+      personal.saveNotificationPolicy(body, nowIso());
+      res.json({ policy: personal.notificationPolicy(), sent: false });
+    } catch (error) { next(error); }
+  });
+
+  app.get('/api/analytics/notifications', deps.requireAdmin, (_req, res) => {
+    res.json({ deliveries: personal.deliveryCounts(), deliveryConfirmed: false });
+  });
+
+  app.get('/api/analytics/preferences', deps.requireAdmin, (_req, res) => {
+    const users = store.listUsers();
+    const enabled = users.filter((user) => personal.notificationPreference(user.id).pushEnabled).length;
+    res.json({
+      interests: personal.preferenceCounts(),
+      accounts: users.length,
+      pushEnabled: enabled,
+      pushOptInRate: users.length ? enabled / users.length : 0,
+    });
+  });
+
+  app.get('/api/me/notifications', (req, res, next) => {
+    try {
+      const user = deps.requireUser(req);
+      const rows = personal.deliveriesForUser(user.id);
+      res.json({ notifications: rows });
+    } catch (error) { next(error); }
+  });
+}
+
+function searchFor(interest: string): string {
+  const queries: Record<string, string> = {
+    motorsport: 'Formula 1 racing',
+    nature: 'nature waterfall',
+    food: 'street food',
+    technology: 'technology',
+    travel: 'travel',
+    sports: 'sports',
+    animals: 'wildlife',
+    entertainment: 'movie',
+  };
+  return queries[interest] ?? interest;
 }
 
 function openConversation(personal: PersonalStore, user: AppUser | null, guestKey: string | null, conversationId: string | undefined, message: string) {

@@ -22,6 +22,8 @@ Backend tests use Vitest, Supertest, and an in-memory SQLite database. EngageLab
 - schedule validation and the `/v4/schedules` body
 - event dedupe and analytics that leave delivery unavailable
 - stable A/B assignment and a preliminary result under 30 devices per variant
+- a one-device experiment that does not send, a labelled simulation that stays out of the real sample, and a single-device test send that is not an assignment
+- interest targeting that resolves a saved category to that account’s device
 - Basic auth construction, extras, and the Android intent URL
 - authentication, validation, and timeout classification
 - tag pushes that use `to.tag` only after a device tag read
