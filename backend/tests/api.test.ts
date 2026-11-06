@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import request from 'supertest';
+import { mediaDirectory } from '../src/app.js';
 import { loadConfig } from '../src/config/env.js';
 import { basicAuthHeader } from '../src/integrations/engagelabClient.js';
 import { buildPushBody, buildSingleScheduleBody } from '../src/integrations/pushPayload.js';
@@ -61,6 +64,41 @@ describe('videos, devices, and auth', () => {
     });
     expect(created.status).toBe(409);
     expect(created.body.error.code).toBe('DUPLICATE_VIDEO_ID');
+  });
+
+  it('stores a video chosen from the operator computer', async () => {
+    const { app, config } = useApp();
+    const bytes = Buffer.from('sample-video-bytes');
+    const uploaded = await admin(app)
+      .post('/api/videos/upload')
+      .query({ name: 'clip.mp4' })
+      .set('Content-Type', 'video/mp4')
+      .send(bytes);
+    expect(uploaded.status).toBe(201);
+    expect(uploaded.body.source).toMatch(/^\/media\/[a-z0-9]{16}\.mp4$/);
+    const stored = path.join(mediaDirectory(config.databaseUrl), uploaded.body.filename as string);
+    expect(fs.readFileSync(stored).equals(bytes)).toBe(true);
+
+    const fetched = await request(app).get(uploaded.body.source);
+    expect(fetched.status).toBe(200);
+    expect(Buffer.from(fetched.body).equals(bytes)).toBe(true);
+
+    const created = await admin(app).post('/api/videos').send({
+      title: 'Chosen clip',
+      description: 'Selected from the operator computer.',
+      category: 'tech',
+      sourceType: 'remote',
+      source: uploaded.body.source,
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.video.source).toBe(uploaded.body.source);
+
+    const rejected = await admin(app).post('/api/videos/upload').query({ name: 'notes.txt' }).set('Content-Type', 'text/plain').send(bytes);
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error.code).toBe('UNSUPPORTED_VIDEO');
+    const unsigned = await request(app).post('/api/videos/upload').query({ name: 'clip.mp4' }).set('Content-Type', 'video/mp4').send(bytes);
+    expect(unsigned.status).toBe(401);
+    fs.unlinkSync(stored);
   });
 
   it('updates and deactivates a video that is referenced by a campaign', async () => {

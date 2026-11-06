@@ -1,7 +1,9 @@
 import cors from 'cors';
 import express from 'express';
 import { z } from 'zod';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AppConfig } from './config/env.js';
@@ -103,6 +105,12 @@ export function createApp(options: AppOptions) {
   const app = express();
   app.disable('x-powered-by');
   app.use(cors({ origin: options.config.corsOrigins, allowedHeaders: ['Content-Type', 'Authorization'] }));
+  app.use('/media', express.static(mediaDirectory(options.config.databaseUrl), {
+    index: false,
+    dotfiles: 'deny',
+    redirect: false,
+    acceptRanges: true,
+  }));
   app.use(express.json({ limit: '1mb' }));
   app.use(readDeviceToken);
 
@@ -300,6 +308,31 @@ export function createApp(options: AppOptions) {
     try {
       const video = await videos.resolvePlayback(req.params.id);
       res.json({ video });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/videos/upload', requireAdmin, express.raw({ type: () => true, limit: '150mb' }), (req, res, next) => {
+    try {
+      const rawName = typeof req.query.name === 'string' ? req.query.name : '';
+      const extension = path.extname(rawName).toLowerCase();
+      if (!VIDEO_EXTENSIONS.has(extension)) {
+        throw new HttpError(400, 'UNSUPPORTED_VIDEO', 'Choose an mp4, webm, mov, or m4v file.');
+      }
+      const contentType = (req.header('content-type') ?? '').split(';')[0].trim().toLowerCase();
+      if (contentType && contentType !== 'application/octet-stream' && !contentType.startsWith('video/')) {
+        throw new HttpError(400, 'UNSUPPORTED_VIDEO', 'Choose a video file.');
+      }
+      const body = req.body;
+      if (!Buffer.isBuffer(body) || body.length === 0) {
+        throw new HttpError(400, 'EMPTY_VIDEO', 'The selected file is empty.');
+      }
+      const directory = mediaDirectory(options.config.databaseUrl);
+      fs.mkdirSync(directory, { recursive: true });
+      const filename = `${crypto.randomBytes(8).toString('hex')}${extension}`;
+      fs.writeFileSync(path.join(directory, filename), body);
+      res.status(201).json({ filename, source: `/media/${filename}`, bytes: body.length });
     } catch (error) {
       next(error);
     }
@@ -635,6 +668,13 @@ export function createApp(options: AppOptions) {
   app.use(notFound);
   app.use(errorHandler);
   return { app, sqlite, store, client, notificationTick: () => schedulerTick(store, personal, campaigns) };
+}
+
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mov', '.m4v']);
+
+export function mediaDirectory(databaseUrl: string): string {
+  if (databaseUrl === ':memory:') return path.join(os.tmpdir(), 'engagevideopush-media');
+  return path.join(path.dirname(path.resolve(databaseUrl)), 'uploads');
 }
 
 function readPage(value: unknown): number {

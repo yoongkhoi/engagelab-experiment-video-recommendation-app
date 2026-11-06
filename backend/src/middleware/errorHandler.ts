@@ -37,6 +37,10 @@ export function errorHandler(error: unknown, _req: Request, res: Response, _next
     res.status(400).json({ error: { code: 'MALFORMED_JSON', message: 'Request body is not valid JSON.' } });
     return;
   }
+  if (error instanceof Error && 'type' in error && (error as { type?: string }).type === 'entity.too.large') {
+    res.status(413).json({ error: { code: 'VIDEO_TOO_LARGE', message: 'The video file is larger than 150 MB.' } });
+    return;
+  }
   logger.error({ name: error instanceof Error ? error.name : 'Error' }, 'Unhandled request error');
   res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'The server could not complete the request.' } });
 }

@@ -18,6 +18,24 @@ export function clearAdminKey(): void {
   sessionStorage.removeItem('evp-admin-key');
 }
 
+export async function uploadMedia(file: File): Promise<{ filename: string; source: string; bytes: number }> {
+  const headers = new Headers();
+  const key = adminKey();
+  if (key) headers.set('Authorization', `Bearer ${key}`);
+  headers.set('Content-Type', file.type || 'application/octet-stream');
+  const response = await fetch(`${base}/api/videos/upload?name=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    headers,
+    body: file,
+  });
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) as { error?: { message?: string; code?: string }; filename?: string; source?: string; bytes?: number } : {};
+  if (!response.ok || !payload.source || !payload.filename) {
+    throw new ApiError(payload.error?.message ?? `Upload failed (${response.status})`, response.status, payload.error?.code);
+  }
+  return { filename: payload.filename, source: payload.source, bytes: payload.bytes ?? file.size };
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (!headers.has('Content-Type') && options.body) headers.set('Content-Type', 'application/json');

@@ -36,10 +36,7 @@ class VideoRepository(private val context: Context, private val api: BackendApi)
     }
 
     fun playbackUri(video: VideoItem): String? {
-        val asset = video.assetFilename
-        if (!asset.isNullOrBlank() && assetExists(asset)) return "asset:///videos/$asset"
-        if (video.source.startsWith("https://")) return video.source
-        return null
+        return resolvePlayback(video, api.baseUrl, this::assetExists)
     }
 
     private fun assetExists(filename: String): Boolean {
@@ -50,6 +47,17 @@ class VideoRepository(private val context: Context, private val api: BackendApi)
             false
         }
     }
+}
+
+internal fun resolvePlayback(video: VideoItem, baseUrl: String, bundledAsset: (String) -> Boolean): String? {
+    val asset = video.assetFilename
+    if (!asset.isNullOrBlank() && bundledAsset(asset)) return "asset:///videos/$asset"
+    val source = video.source
+    if (source.startsWith("https://") || source.startsWith("http://")) return source
+    if (source.startsWith("/media/") && !source.contains("..") && !source.contains('\\')) {
+        return baseUrl.trimEnd('/') + source
+    }
+    return null
 }
 
 data class FeedResult(

@@ -1,7 +1,9 @@
 package com.example.engagevideopush
 
 import com.example.engagevideopush.data.FeedCategories
+import com.example.engagevideopush.data.VideoItem
 import com.example.engagevideopush.data.VideoJson
+import com.example.engagevideopush.data.resolvePlayback
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -36,6 +38,26 @@ class VideoJsonTest {
     @Test
     fun skipsAVideoWithoutAnIdOrSource() {
         assertNull(VideoJson.parse(JSONObject("""{"title":"missing"}""")))
+    }
+
+    @Test
+    fun uploadedFilePlaysFromTheConfiguredBackend() {
+        val video = VideoItem(
+            id = "local",
+            title = "Chosen clip",
+            description = "Selected from the operator computer.",
+            category = "tech",
+            sourceType = "remote",
+            source = "/media/0123456789abcdef.mp4",
+            assetFilename = null,
+            thumbnailUrl = null,
+            active = true,
+        )
+        assertEquals(
+            "http://192.168.1.8:3000/media/0123456789abcdef.mp4",
+            resolvePlayback(video, "http://192.168.1.8:3000/", { false }),
+        )
+        assertNull(resolvePlayback(video.copy(source = "/media/../secret.mp4"), "http://192.168.1.8:3000", { false }))
     }
 
     @Test

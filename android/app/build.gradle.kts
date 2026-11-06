@@ -12,13 +12,18 @@ val engageProps = Properties().apply {
     val file = rootProject.file("engagelab.properties")
     if (file.exists()) file.inputStream().use { load(it) }
 }
-val engageAppKey = engageProps.getProperty("ENGAGELAB_APPKEY", "")
+val demoShare = project.hasProperty("demoShare")
+val engageAppKey = if (demoShare) "" else engageProps.getProperty("ENGAGELAB_APPKEY", "")
 val engageSite = engageProps.getProperty("ENGAGELAB_APP_SITE", "")
 val backendPort = engageProps.getProperty("BACKEND_PORT", "").trim().ifBlank {
     val legacy = engageProps.getProperty("BACKEND_BASE_URL", "")
     legacy.substringAfterLast(':').substringBefore('/').ifBlank { "3000" }
 }.let { if (it.all { char -> char.isDigit() }) it else "3000" }
-val backendLanHost = engageProps.getProperty("BACKEND_LAN_HOST", "").trim().ifBlank { detectLanIpv4() }
+val backendLanHost = if (demoShare) {
+    ""
+} else {
+    engageProps.getProperty("BACKEND_LAN_HOST", "").trim().ifBlank { detectLanIpv4() }
+}
 
 android {
     namespace = "com.example.engagevideopush"

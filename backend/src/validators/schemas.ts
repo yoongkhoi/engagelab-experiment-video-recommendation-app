@@ -17,8 +17,9 @@ export const videoSchema = z.object({
   thumbnailUrl: z.string().trim().url().nullable().optional(),
   active: z.boolean().optional(),
 }).superRefine((value, context) => {
-  if (value.sourceType === 'remote' && !/^https:\/\//.test(value.source)) {
-    context.addIssue({ code: 'custom', path: ['source'], message: 'Remote videos must use an https URL.' });
+  const uploadedMedia = /^\/media\/[a-z0-9]{16}\.(mp4|webm|mov|m4v)$/.test(value.source);
+  if (value.sourceType === 'remote' && !/^https:\/\//.test(value.source) && !uploadedMedia) {
+    context.addIssue({ code: 'custom', path: ['source'], message: 'Remote videos must use an https URL or a video file chosen from this computer.' });
   }
   if (value.sourceType === 'asset' && value.source.includes('..')) {
     context.addIssue({ code: 'custom', path: ['source'], message: 'Asset names cannot contain parent path segments.' });

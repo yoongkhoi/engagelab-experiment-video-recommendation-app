@@ -11,6 +11,7 @@ backend/data/*.sqlite
 backend/data/*.sqlite-journal
 backend/data/*.sqlite-wal
 backend/data/*.sqlite-shm
+backend/data/uploads/
 
 dashboard/dist/
 dashboard/node_modules/
@@ -27,3 +28,5 @@ android/.cxx/
 
 *.jks
 *.keystore
+*.signing.properties
+release/*.apk
